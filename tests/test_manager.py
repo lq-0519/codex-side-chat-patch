@@ -50,7 +50,7 @@ class BundleTransactions(unittest.TestCase):
             mock.stop()
         self.temporary.cleanup()
 
-    def inspect_fixture(self, app):
+    def inspect_fixture(self, app, allow_updated_version=False):
         """Model verified identities from physical archive content, leaving exchanges real."""
         digest = archive.sha256_file(manager.archive_path(app))
         return {
