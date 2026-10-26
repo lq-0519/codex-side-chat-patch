@@ -45,6 +45,115 @@ test("closed side chats survive restart and reopen by original ID without crossi
   assert.equal(persistence.isSavedSide(storage, "remote-host", "side-one"), false);
 });
 
+test("hot reads validate only new native snapshots and reject newly published corruption", () => {
+  let validations = 0;
+  const record = {
+    durable: durable(), hidden: false,
+    get inheritedTurnIds() { validations++; return ["parent-turn"]; },
+  };
+  let value = { version: 1, records: { "side-one": record } };
+  const storage = { readValue: () => value };
+  persistence.readRegistry(storage);
+  const first = validations;
+  for (let index = 0; index < 100; index++) {
+    assert.equal(persistence.isSavedSide(storage, "local", "side-one"), true);
+    assert.equal(persistence.isSavedSide(storage, "local", "parent-one"), false);
+  }
+  assert.equal(validations, first, "unchanged recents must not rescan inherited IDs");
+  value = { version: 1, records: {
+    "side-one": { durable: durable(), hidden: false, inheritedTurnIds: [42] },
+  } };
+  assert.throws(() => persistence.readRegistry(storage), /invalid record/);
+  value = { version: 1, records: {} };
+  assert.equal(persistence.isSavedSide(storage, "local", "side-one"), false);
+  value = null;
+  assert.strictEqual(persistence.readRegistry(storage), persistence.readRegistry(storage));
+});
+
+test("display caches preserve new boundaries and evict old sets instead of growing with saved history", () => {
+  let value = { version: 1, records: {} };
+  const storage = { readValue: () => value };
+  const counts = Array(5).fill(0);
+  /** Instrument membership construction while retaining normal native immutable array contents. */
+  function boundary(index) {
+    const ids = ["parent-" + index];
+    ids[Symbol.iterator] = function* () {
+      counts[index]++;
+      yield* Array.prototype[Symbol.iterator].call(this);
+    };
+    return ids;
+  }
+  const turns = [{ turnId: "parent-0" }, { turnId: "own-side" }];
+  for (let index = 0; index < 5; index++) {
+    value.records["side-" + index] = {
+      durable: durable("side-" + index), hidden: false, inheritedTurnIds: boundary(index),
+    };
+  }
+  for (let index = 0; index < 5; index++) {
+    persistence.displayTurns(storage, { hostId: "local", id: "side-" + index }, turns);
+  }
+  persistence.displayTurns(storage, { hostId: "local", id: "side-4" }, turns);
+  assert.equal(counts[4], 1);
+  persistence.displayTurns(storage, { hostId: "local", id: "side-0" }, turns);
+  assert.equal(counts[0], 2, "fifth distinct boundary must evict the oldest retained set");
+  value = { version: 1, records: {
+    "side-0": { ...value.records["side-0"], inheritedTurnIds: ["own-side"] },
+  } };
+  const display = persistence.displayTurns(storage, { hostId: "local", id: "side-0" }, turns);
+  assert.deepEqual(display.map(turn => turn.turnId), ["parent-0"]);
+  const oversized = Array.from({ length: 20001 }, (_, index) => "large-" + index);
+  let builds = 0;
+  oversized[Symbol.iterator] = function* () {
+    builds++;
+    yield* Array.prototype[Symbol.iterator].call(this);
+  };
+  value = { version: 1, records: {
+    "large": { durable: durable("large"), hidden: false, inheritedTurnIds: oversized },
+  } };
+  const largeTurns = [{ turnId: "large-20000" }, { turnId: "own-side" }];
+  for (let index = 0; index < 2; index++) {
+    assert.deepEqual(
+      persistence.displayTurns(storage, { hostId: "local", id: "large" }, largeTurns)
+        .map(turn => turn.turnId), ["own-side"],
+    );
+  }
+  assert.equal(builds, 2, "oversized sets work fully but are never retained in the cache");
+});
+
+test("unchanged relation writes are skipped and parent discovery reuses only the current snapshot", () => {
+  let value;
+  let writes = 0;
+  const storage = {
+    readValue: () => value,
+    writeValue: (_, updated) => { value = updated; writes++; },
+  };
+  const descriptor = durable();
+  persistence.remember(storage, descriptor, ["parent-turn"]);
+  persistence.remember(storage, { ...descriptor });
+  persistence.remember(storage, { ...descriptor }, ["parent-turn"]);
+  assert.equal(writes, 1);
+  persistence.hide(storage, "side-one");
+  persistence.hide(storage, "side-one");
+  assert.equal(writes, 2);
+  persistence.remember(storage, descriptor);
+  assert.equal(writes, 3, "reopening a hidden row must remain a real write");
+  persistence.remember(storage, { ...descriptor, title: "changed" });
+  assert.equal(writes, 4, "title updates must not be suppressed");
+  const identity = {
+    accountId: "account-one", userId: "user-one", sourceConversationId: "parent-one",
+  };
+  const originalRows = [{ conversationId: "side-one" }];
+  assert.strictEqual(persistence.summaryRows(value, originalRows, identity), originalRows);
+  const empty = [];
+  assert.strictEqual(persistence.summaryRows(value, empty, {
+    ...identity, sourceConversationId: "other-parent",
+  }), empty);
+  persistence.summaryRows(value, empty, identity);
+  persistence.remember(storage, durable("new-side"), []);
+  assert.deepEqual(persistence.summaryRows(value, empty, identity).map(row => row.conversationId),
+    ["side-one", "new-side"]);
+});
+
 test("actual summary hook reads the native KV family with a key and preserves reactive open/saved rows", () => {
   const storage = storageFixture();
   persistence.remember(storage, durable("closed-side"), []);

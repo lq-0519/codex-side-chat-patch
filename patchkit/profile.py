@@ -173,8 +173,12 @@ def build_replacements(archive):
         "o.sendRequest(`thread/fork`,n,f)),v=cs(_.thread.id)",
     )
     text += """
-/** Read/write the same native persistent KV that stores existing tab route layouts. */
-export function codexSidePatchStorage(){return{readValue:_v,writeValue:vv};}
+/** Reuse one native KV adapter across hot selectors; reads still fetch the latest native snapshot. */
+var __codexSideStorage;
+/** Lazily bind existing persistent KV functions after native initialization, without new I/O. */
+export function codexSidePatchStorage(){
+  return __codexSideStorage??=({readValue:_v,writeValue:vv});
+}
 /** Lazily initialized native KV atom makes saved and hidden rows reactive across windows. */
 var __codexSideRegistryAtom;
 /** Resolve the registry signal only after the application's signal runtime is initialized. */
