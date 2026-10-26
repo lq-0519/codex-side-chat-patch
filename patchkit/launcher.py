@@ -115,8 +115,27 @@ def original_for_older_patch(app, state, current):
 
 
 def open_application(app):
-    """Ask LaunchServices to open/focus this path; never quit processes or alter startup settings."""
+    """Open/focus this path and require a stable main process rather than trusting open's exit status.
+
+    LaunchServices may return success before dyld or taskgated terminates the new process. Observe
+    the exact main executable for two continuous seconds within an eight-second startup budget.
+    Helpers alone do not establish startup success; this check never launches a second copy.
+    """
     manager.run(["/usr/bin/open", str(app)])
+    executable = str(Path(app).resolve() / "Contents/MacOS" / manager.plist(app)["CFBundleExecutable"])
+    deadline = time.monotonic() + 8
+    stable_since = None
+    while time.monotonic() < deadline:
+        live = any(line.partition(" ")[2] == executable for line in manager.running(app))
+        now = time.monotonic()
+        if live:
+            stable_since = now if stable_since is None else stable_since
+            if now - stable_since >= 2:
+                return
+        else:
+            stable_since = None
+        time.sleep(0.25)
+    raise ValueError("Application main process did not remain running after startup; inspect macOS launch diagnostics")
 
 
 def native_notice(message):

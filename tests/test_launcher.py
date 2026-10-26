@@ -41,6 +41,8 @@ class AutomaticStartup(unittest.TestCase):
             patch.object(manager, "build_replacements", side_effect=self.replacements),
             patch.object(manager, "verify_signature"),
             patch.object(manager, "signature_description", side_effect=self.signature),
+            patch.object(manager, "verify_framework", return_value="f" * 64),
+            patch.object(manager, "synchronize_framework"),
             patch.object(manager, "run", side_effect=self.run_service),
             patch.object(manager.subprocess, "run", side_effect=self.subprocess_service),
             patch.object(launcher, "open_application"),
@@ -127,7 +129,13 @@ class AutomaticStartup(unittest.TestCase):
     def subprocess_service(self, arguments, **kwargs):
         """Provide source entitlements while forwarding unrelated subprocesses to the real OS."""
         if arguments[:3] == ["/usr/bin/codesign", "-d", "--entitlements"]:
-            return subprocess.CompletedProcess(arguments, 0, plistlib.dumps({"test.entitlement": True}), b"")
+            return subprocess.CompletedProcess(arguments, 0, plistlib.dumps({
+                "test.entitlement": True, "com.apple.security.cs.allow-jit": True,
+                "com.apple.developer.aps-environment": "production",
+                "com.apple.developer.usernotifications.communication": True,
+                "com.apple.developer.team-identifier": "2DC432GLL2",
+                "keychain-access-groups": ["2DC432GLL2.com.openai.codex"],
+            }), b"")
         return self.real_subprocess(arguments, **kwargs)
 
     def start(self, notify=True):
@@ -167,6 +175,18 @@ class AutomaticStartup(unittest.TestCase):
         self.assertEqual(archive.sha256_file(manager.archive_path(self.app)), self.original_hash)
         self.assertEqual(self.open_mock.call_count, 3)
         self.notice_mock.assert_not_called()
+
+    def test_staging_removes_provisioned_vendor_rights_and_keeps_jit(self):
+        """Prevent the real taskgated launch failure while retaining the runtime's required JIT rights."""
+        directory, _ = launcher.cached_stage(
+            self.app, manager.inspect(self.app), self.state, self.identity, "node",
+        )
+        entitlements = plistlib.loads((directory / "signing-entitlements.plist").read_bytes())
+        self.assertEqual(entitlements, {
+            "test.entitlement": True, "com.apple.security.cs.allow-jit": True,
+            "com.apple.security.cs.disable-library-validation": True,
+        })
+        self.open_mock.assert_not_called()
 
     def test_matched_update_is_opt_in_noticed_once_and_rolls_back_to_that_update(self):
         """A structurally matched update is applied with a notice and never rolled back to an older build."""
@@ -354,6 +374,37 @@ class AutomaticStartup(unittest.TestCase):
         self.notice_mock.assert_called_once()
         self.open_mock.assert_not_called()
         self.assertTrue((self.state / "launch.jsonl").exists())
+
+
+class StartupHealth(unittest.TestCase):
+    """Reject a successful open command when the application's main process fails immediately."""
+
+    def test_main_process_must_be_stable_and_helpers_are_insufficient(self):
+        """Use a controlled clock to exercise both successful startup and a helper-only failed launch."""
+        # Capture the real function before AutomaticStartup's per-test desktop service mocks.
+        app = Path("/Applications/Synthetic.app")
+        executable = str(app / "Contents/MacOS/Synthetic")
+        for processes, succeeds in [
+            (["10 " + executable], True),
+            (["11 " + str(app / "Contents/Resources/helper")], False),
+        ]:
+            clock = [0.0]
+            def tick(duration):
+                """Advance simulated startup time without sleeping or interacting with real applications."""
+                clock[0] += duration
+            with (
+                patch.object(manager, "run") as request,
+                patch.object(manager, "plist", return_value={"CFBundleExecutable": "Synthetic"}),
+                patch.object(manager, "running", return_value=processes),
+                patch.object(launcher.time, "monotonic", side_effect=lambda: clock[0]),
+                patch.object(launcher.time, "sleep", side_effect=tick),
+            ):
+                if succeeds:
+                    launcher.open_application(app)
+                else:
+                    with self.assertRaisesRegex(ValueError, "did not remain running"):
+                        launcher.open_application(app)
+                request.assert_called_once_with(["/usr/bin/open", str(app)])
 
 
 if __name__ == "__main__":

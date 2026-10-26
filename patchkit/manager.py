@@ -17,6 +17,7 @@ import time
 import uuid
 
 from .archive import read_file, read_header, rebuild, sha256_bytes, sha256_file
+from .integrity import synchronize_framework, verify_framework
 from .profile import ASSETS, PROFILE, ROOT, build_replacements, implementation_digest
 
 
@@ -26,6 +27,11 @@ DEFAULT_APP = Path("/Applications/ChatGPT.app")
 DEFAULT_STATE = Path.home() / "Library/Application Support/CodexSideChatPatch"
 # STAMP_KEY identifies the patched plist; independent receipts also pin every changed asset.
 STAMP_KEY = "CodexNativeSidePatch"
+# SHARED_RUNTIME is also used by Lark's independent MCP worker, outside the desktop app lifecycle.
+SHARED_RUNTIME = Path("Contents/Resources/cua_node/bin/node_repl")
+# MCP_WORKER and MCP_SERVICE identify the verified external owner; unknown consumers still block writes.
+MCP_WORKER = "/Applications/Lark.app/Contents/XPCServices/McpService.xpc/Contents/Helpers/McpHelperWorker"
+MCP_SERVICE = "/Applications/Lark.app/Contents/XPCServices/McpService.xpc/Contents/MacOS/McpService"
 
 
 def run(arguments):
@@ -79,14 +85,49 @@ def archive_path(app):
 
 
 def running(app):
-    """Detect the main executable and any helpers using this exact bundle path."""
-    executable = Path(app).resolve() / "Contents/MacOS" / plist(app)["CFBundleExecutable"]
-    processes = run(["/bin/ps", "-axo", "pid=,command="])
-    bundle_prefix = str(Path(app).resolve()) + "/"
-    return [
-        line.strip() for line in processes.splitlines()
-        if str(executable) in line or bundle_prefix in line.partition(" ")[2]
-    ]
+    """Detect real bundle executables, preserving Lark's independently owned unchanged Node runtime.
+
+    Inspect executable paths rather than arbitrary command arguments. Only the exact shared Node
+    executable with both known Lark MCP ancestors is excluded. Every desktop process, orphaned
+    helper and unknown standalone consumer still prevents installation. Exchanges additionally
+    require the shared runtime bytes to match, and preserve the original complete bundle/inodes.
+    """
+    app = Path(app).resolve()
+    processes = {}
+    for line in run(["/bin/ps", "-ww", "-axo", "pid=,ppid=,comm="]).splitlines():
+        fields = line.strip().split(None, 2)
+        if len(fields) == 3 and fields[0].isdigit() and fields[1].isdigit():
+            processes[int(fields[0])] = (int(fields[1]), fields[2])
+    matches = []
+    for pid, (parent, executable) in processes.items():
+        if not executable.startswith(str(app) + "/"):
+            continue
+        owner = processes.get(parent)
+        service = processes.get(owner[0]) if owner is not None else None
+        if (
+            executable == str(app / SHARED_RUNTIME) and owner is not None and service is not None and
+            owner[1] == MCP_WORKER and service[1] == MCP_SERVICE
+        ):
+            continue
+        matches.append(str(pid) + " " + executable)
+    return matches
+
+
+def require_unchanged_shared_runtime(app, candidate):
+    """Protect independent MCP consumers by rejecting a replacement that changes their runtime bytes.
+
+    An atomic whole-bundle exchange retains the running process's original inode in the backup.
+    The path it may use for future launches must contain exactly the same executable bytes.
+    Synthetic fixtures may omit this optional runtime on both sides, but never only one side.
+    """
+    original, replacement = Path(app) / SHARED_RUNTIME, Path(candidate) / SHARED_RUNTIME
+    if not original.exists() and not replacement.exists():
+        return
+    if (
+        not original.is_file() or not replacement.is_file() or
+        sha256_file(original) != sha256_file(replacement)
+    ):
+        raise ValueError("Shared MCP runtime changed; this adapter requires an unchanged runtime")
 
 
 def require_stopped(app):
@@ -221,6 +262,14 @@ def inspect(app, allow_updated_version=False):
         if not valid_identity:
             result["reason"] = "Patched bundle certificate does not match its signed manifest"
             return result
+    # Legacy signed patches remain identifiable for receipt-bound rollback, even if unlaunchable.
+    # Originals and this implementation must pass Electron's separate framework metadata seal.
+    if stamp is None or stamp.get("implementation") == implementation_digest():
+        try:
+            result["framework_integrity"] = verify_framework(app, info.get("ElectronAsarIntegrity"))
+        except (ValueError, OSError) as error:
+            result["reason"] = str(error)
+            return result
     cli = app / "Contents/Resources/codex-cli/bin/codex"
     result["cli_version"] = run([str(cli), "--version"]).strip()
     if result["cli_version"] != "codex-cli " + PROFILE["cli_version"]:
@@ -268,7 +317,9 @@ def stage(app, output, identity="-", allow_updated_version=False, node="node"):
             run([str(node), "--check", str(target)])
     header_hash = rebuild(archive_path(clone), replacements)
     info = plist(clone)
+    original_integrity = plist(app)["ElectronAsarIntegrity"]
     info["ElectronAsarIntegrity"]["Resources/app.asar"]["hash"] = header_hash
+    synchronize_framework(clone, original_integrity, info["ElectronAsarIntegrity"])
     info[STAMP_KEY] = {
         "profile": PROFILE["id"], "implementation": implementation_digest(),
         "original_asar_sha256": source["asar_sha256"],
@@ -279,7 +330,8 @@ def stage(app, output, identity="-", allow_updated_version=False, node="node"):
     (clone / "Contents/Info.plist").write_bytes(
         plistlib.dumps(info, fmt=plistlib.FMT_BINARY, sort_keys=False)
     )
-    # Keep non-team entitlements, but never claim OpenAI's keychain/app-group identity.
+    # Vendor identities and provisioned notification rights are unavailable to a local certificate.
+    # Retaining APS/communication rights makes taskgated reject launch despite a valid code seal.
     entitlement_result = subprocess.run(
         ["/usr/bin/codesign", "-d", "--entitlements", ":-", str(app)],
         capture_output=True, timeout=30,
@@ -291,8 +343,12 @@ def stage(app, output, identity="-", allow_updated_version=False, node="node"):
         "com.apple.application-identifier", "application-identifier",
         "com.apple.developer.team-identifier", "keychain-access-groups",
         "com.apple.security.application-groups",
+        "com.apple.developer.aps-environment",
+        "com.apple.developer.usernotifications.communication",
     ):
         entitlements.pop(key, None)
+    # A local certificate has no Apple Team ID; hardened runtime otherwise rejects Electron's dylib.
+    entitlements["com.apple.security.cs.disable-library-validation"] = True
     entitlements_path = output / "signing-entitlements.plist"
     entitlements_path.write_bytes(plistlib.dumps(entitlements))
     run([
@@ -412,6 +468,7 @@ def exchange(app, slot, state, operation, before_hash, after_hash):
         ),
     }
     require_stopped(app)
+    require_unchanged_shared_runtime(app, slot)
     if sha256_file(archive_path(app)) != before_hash:
         raise ValueError("Application changed before exchange")
     atomic_json(state / "transaction.json", journal)
@@ -517,6 +574,7 @@ def recover(state=DEFAULT_STATE):
         require_stopped(app)
         pair = (sha256_file(archive_path(app)), sha256_file(archive_path(slot)))
         if pair == (journal["after"], journal["before"]):
+            require_unchanged_shared_runtime(app, slot)
             atomic_swap(app, slot)
             verify_signature(app)
         elif pair != (journal["before"], journal["after"]):

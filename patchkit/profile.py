@@ -190,10 +190,7 @@ export function codexSidePatchRegistryAtom(){
     text = replace_once(
         text,
         "bO=w(_i,({get:e})=>mO(e(Vo.tabs$),t=>e(su,t)??!1))",
-        "bO=w(_i,({get:e,scope:t})=>__scp.summaryRows("
-        "e(__sideRegistryAtom()),mO(e(Vo.tabs$),t=>e(su,t)??!1),"
-        "{accountId:e(__sideAccount),userId:e(__sideUser),"
-        "sourceConversationId:t.value.conversationId}))",
+        "bO=w(_i," + (ROOT / "hooks/summary.js").read_text().strip() + ")",
     )
     text = replace_once(
         text,
@@ -225,9 +222,10 @@ export function codexSidePatchRegistryAtom(){
 
 
 def implementation_digest():
-    """Identify templates and adapter together so an older installed patch cannot look current."""
+    """Pin templates, adapter and signing policy so a stale or unlaunchable package gets rebuilt."""
     files = [
         ROOT / "patchkit/profile.py", ROOT / "runtime/persistence.mjs",
-        ROOT / "hooks/local-create.js", ROOT / "hooks/restore.js",
+        ROOT / "hooks/local-create.js", ROOT / "hooks/restore.js", ROOT / "hooks/summary.js",
+        ROOT / "patchkit/manager.py", ROOT / "patchkit/integrity.py",
     ]
     return sha256_bytes(b"".join(path.read_bytes() for path in files))

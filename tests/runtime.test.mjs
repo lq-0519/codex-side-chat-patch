@@ -45,6 +45,51 @@ test("closed side chats survive restart and reopen by original ID without crossi
   assert.equal(persistence.isSavedSide(storage, "remote-host", "side-one"), false);
 });
 
+test("actual summary hook reads the native KV family with a key and preserves reactive open/saved rows", () => {
+  const storage = storageFixture();
+  persistence.remember(storage, durable("closed-side"), []);
+  persistence.hide(storage, "closed-side");
+  const registryFamily = { kind: "signal-family" };
+  const tabSignal = {}, responseFamily = {}, accountSignal = {}, userSignal = {};
+  let account = "account-one";
+  const context = {
+    __scp: persistence, __sideRegistryAtom: () => registryFamily,
+    __sideAccount: accountSignal, __sideUser: userSignal, Vo: { tabs$: tabSignal },
+    su: responseFamily,
+    mO: (tabs, progress) => tabs.map(row => ({
+      ...row, isResponseInProgress: progress(row.conversationId),
+    })),
+  };
+  const selector = vm.runInNewContext(
+    fs.readFileSync(new URL("../hooks/summary.js", import.meta.url), "utf8"), context,
+  );
+  /** Model native one-argument atom reads and two-argument family reads, including undefined keys. */
+  function get(signal, key) {
+    if (signal === registryFamily) {
+      assert.equal(arguments.length, 2, "native KV families require an explicit key argument");
+      assert.equal(key, undefined);
+      return persistence.readRegistry(storage);
+    }
+    if (signal === tabSignal) return [{ conversationId: "live-side", tabId: "sidechat:live-side" }];
+    if (signal === responseFamily) {
+      assert.equal(arguments.length, 2);
+      return key === "live-side";
+    }
+    if (signal === accountSignal) return account;
+    if (signal === userSignal) return "user-one";
+    throw Error("Unknown fixture signal");
+  }
+  const scope = { value: { conversationId: "parent-one" } };
+  const rows = selector({ get, scope });
+  assert.deepEqual(Array.from(rows, row => row.conversationId), ["live-side", "closed-side"]);
+  assert.equal(rows[0].isResponseInProgress, true);
+  account = "account-two";
+  assert.deepEqual(Array.from(selector({ get, scope }), row => row.conversationId), ["live-side"]);
+  account = "account-one";
+  persistence.remember(storage, durable("second-side"), []);
+  assert.equal(selector({ get, scope }).length, 3);
+});
+
 test("legacy and unified presentation hide inherited history while canonical context stays intact", () => {
   const storage = storageFixture();
   persistence.remember(storage, durable(), ["parent-old", "parent-new"]);

@@ -114,6 +114,71 @@ class BundleTransactions(unittest.TestCase):
             manager.rollback(self.app, self.state)
         self.assertEqual(manager.archive_path(self.app).read_bytes(), b"new-vendor-update")
 
+    def test_shared_runtime_change_prevents_exchange_and_identical_bytes_allow_rollback(self):
+        """An independent consumer's runtime must stay byte-identical through install and full rollback."""
+        original, staged = self.app / manager.SHARED_RUNTIME, self.staged / manager.SHARED_RUNTIME
+        original.parent.mkdir(parents=True)
+        staged.parent.mkdir(parents=True)
+        original.write_bytes(b"unchanged-node-runtime")
+        staged.write_bytes(b"changed-node-runtime")
+        with self.assertRaisesRegex(ValueError, "Shared MCP runtime changed"):
+            manager.apply(self.app, self.stage, self.state)
+        self.assertEqual(manager.archive_path(self.app).read_bytes(), b"original-archive")
+        self.assertFalse((self.state / "transaction.json").exists())
+        staged.write_bytes(original.read_bytes())
+        installed = manager.apply(self.app, self.stage, self.state)
+        self.assertEqual((Path(installed["backup"]) / manager.SHARED_RUNTIME).read_bytes(), original.read_bytes())
+        manager.rollback(self.app, self.state)
+        self.assertEqual(original.read_bytes(), b"unchanged-node-runtime")
+
+
+class ProcessOwnership(unittest.TestCase):
+    """Distinguish desktop helpers from independently owned MCP runtime consumers."""
+
+    def test_known_mcp_runtime_does_not_mask_desktop_helpers(self):
+        """Only the external runtime is excluded; main, renderer and orphaned engine processes still block."""
+        app = manager.DEFAULT_APP
+        table = "\n".join([
+            "2162 1 " + manager.MCP_SERVICE,
+            "2165 2162 " + manager.MCP_WORKER,
+            "2167 2165 " + str(app / manager.SHARED_RUNTIME),
+            "100 1 " + str(app / "Contents/MacOS/ChatGPT"),
+            "101 100 " + str(app / "Contents/Frameworks/Codex (Renderer).app/Contents/MacOS/Codex (Renderer)"),
+            "102 1 " + str(app / "Contents/Resources/codex-cli/bin/codex"),
+            "999 1 /usr/bin/python3",
+        ])
+        with patch.object(manager, "run", return_value=table):
+            processes = manager.running(app)
+        self.assertEqual({int(line.split()[0]) for line in processes}, {100, 101, 102})
+
+    def test_unknown_owners_and_app_owned_node_still_block(self):
+        """A lookalike worker or Node owned by the desktop must not receive the external-owner exemption."""
+        app = manager.DEFAULT_APP
+        for owner, service in [
+            (manager.MCP_WORKER, "/unknown/McpService"),
+            ("/unknown/McpHelperWorker", manager.MCP_SERVICE),
+            (str(app / "Contents/MacOS/ChatGPT"), manager.MCP_SERVICE),
+        ]:
+            table = "\n".join([
+                "10 1 " + service, "11 10 " + owner,
+                "12 11 " + str(app / manager.SHARED_RUNTIME),
+            ])
+            with patch.object(manager, "run", return_value=table):
+                self.assertTrue(any(line.startswith("12 ") for line in manager.running(app)))
+
+    def test_only_the_known_external_runtime_can_be_ignored(self):
+        """An independently launched app-server or another bundle executable remains a blocking consumer."""
+        app = manager.DEFAULT_APP
+        table = "\n".join([
+            "2162 1 " + manager.MCP_SERVICE, "2165 2162 " + manager.MCP_WORKER,
+            "2167 2165 " + str(app / manager.SHARED_RUNTIME),
+            "2168 2165 " + str(app / "Contents/Resources/codex-cli/bin/codex"),
+        ])
+        with patch.object(manager, "run", return_value=table):
+            self.assertEqual(manager.running(app), [
+                "2168 " + str(app / "Contents/Resources/codex-cli/bin/codex"),
+            ])
+
 
 class ArchiveIntegrity(unittest.TestCase):
     """Verify append-only packing, digest enforcement and untouched original file offsets."""
