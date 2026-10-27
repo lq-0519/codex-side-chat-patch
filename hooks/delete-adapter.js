@@ -57,9 +57,14 @@ export function codexSidePatchRegisterDeletionTab(scope, durable) {
   if (tabs == null) __codexSideDeleteTabScopes.set(scope, tabs = new Map());
   tabs.get(durable.conversationId)?.();
   const stop = codexSidePatchRegisterDeletionScope(scope);
+  /** Native KV events synchronize names only while this tab exists, with no polling or timers. */
+  const syncTitle = () => __codexSideSyncTitle(scope, durable);
+  const stopTitle = bv(__scp.REGISTRY_KEY, void 0, syncTitle);
+  syncTitle();
   /** The identity check prevents an old replaced tab from unregistering its new replacement. */
   const release = () => {
     stop();
+    stopTitle();
     if (tabs.get(durable.conversationId) === release) tabs.delete(durable.conversationId);
   };
   tabs.set(durable.conversationId, release);

@@ -59,6 +59,7 @@ export function readRegistry(storage) {
       !Array.isArray(record.inheritedTurnIds) ||
       !record.inheritedTurnIds.every((turnId) => typeof turnId === "string") ||
       typeof record.hidden !== "boolean" ||
+      (record.naming != null && !["placeholder", "content"].includes(record.naming.phase)) ||
       (record.deletion != null &&
         (typeof record.deletion.operationId !== "string" ||
           !["requested", "native-deleted"].includes(record.deletion.phase)))
@@ -108,15 +109,19 @@ function sameDescriptor(previous, updated) {
 /**
  * Persist a relation before exposing the thread in a panel.
  * Descriptor fields follow the original application's nullable collaborationMode schema.
- * Existing boundary IDs and the creation timestamp survive title updates and reopen.
+ * Existing boundary IDs, authoritative title and naming phase survive stale reopen descriptors.
+ * Creation may supply {phase, baseTitle}; main allocates the unique name and returns its descriptor.
  */
-export function remember(storage, durable, inheritedTurnIds) {
+export function remember(storage, durable, inheritedTurnIds, naming) {
   const index = readRegistry(storage);
   const previous = index.records[durable.conversationId];
   if (previous?.deletion || (previous == null && inheritedTurnIds == null)) {
     throw new Error("The side chat was deleted or is being deleted");
   }
-  const descriptor = { ...durable, collaborationMode: durable.collaborationMode ?? null };
+  const descriptor = {
+    ...durable, collaborationMode: durable.collaborationMode ?? null,
+    ...(previous == null ? {} : { title: previous.durable.title }),
+  };
   const boundary = inheritedTurnIds ?? previous?.inheritedTurnIds ?? [];
   if (
     previous != null && !previous.hidden && sameDescriptor(previous.durable, descriptor) &&
@@ -124,12 +129,14 @@ export function remember(storage, durable, inheritedTurnIds) {
       (boundary.length === previous.inheritedTurnIds.length &&
         boundary.every((id, position) => id === previous.inheritedTurnIds[position])))
   ) {
-    return;
+    return previous.durable;
   }
   if (storage.commit) return storage.commit({
-    action: "remember", durable: descriptor, create: inheritedTurnIds != null, inheritedTurnIds,
+    action: "remember", durable: descriptor, create: inheritedTurnIds != null, inheritedTurnIds, naming,
   });
+  if (naming != null) throw Error("Side-chat naming requires native main-process mutations");
   const record = {
+    ...previous,
     durable: descriptor,
     inheritedTurnIds: boundary,
     hidden: false,
@@ -140,6 +147,32 @@ export function remember(storage, durable, inheritedTurnIds) {
     version: 1,
     records: { ...index.records, [durable.conversationId]: record },
   });
+  return record.durable;
+}
+
+/**
+ * Test only this side's canonical turn IDs against the exact inherited boundary. Unknown history
+ * cannot prove a first turn. A persisted content phase also blocks duplicate callbacks/restarts;
+ * legacy saved records can still name their first own turn when loaded history proves it is empty.
+ */
+export function shouldNameFirstTurn(storage, conversationId, turns) {
+  const record = readRegistry(storage).records[conversationId];
+  if (record == null || record.deletion || record.naming?.phase === "content" ||
+      turns == null) return false;
+  const inherited = inheritedSet(record);
+  return turns.every((turn) => inherited.has(turn.turnId));
+}
+
+/**
+ * Save native OI's cleaned title once, after native send success. Main owns suffix allocation and
+ * duplicate-callback admission. No message text/model call is needed beyond that display title.
+ * Empty text seals the first-turn phase while preserving the unique placeholder.
+ */
+export function nameFirstTurn(storage, durable, title) {
+  const record = readRegistry(storage).records[durable.conversationId];
+  assertUsable(storage, durable, durable.accountId, durable.userId);
+  if (record.naming?.phase === "content") return Promise.resolve(record.durable);
+  return storage.commit({ action: "name-first-turn", durable, title });
 }
 
 /** Hide a closed panel without deleting its native rollout or its discovery relation. */
@@ -280,7 +313,8 @@ export function summaryRows(index, openRows, { accountId, userId, sourceConversa
   let rows = openRows.map((row) => {
     const record = byId.get(row.conversationId);
     return record == null ? row : {
-      ...row, durable: record.durable, deletion: record.deletion, isSavedClosed: false,
+      ...row, title: record.durable.title ?? row.title,
+      durable: record.durable, deletion: record.deletion, isSavedClosed: false,
     };
   });
   const opened = new Set(openRows.map((row) => row.conversationId));
@@ -387,18 +421,18 @@ export function mutationStorage({ readValue, publish, subscribe, clearReply, tim
         let stop;
         let timer;
         /** Release the one-shot subscription regardless of acknowledgement, timeout or publish error. */
-        const finish = (error) => {
+        const finish = (error, value) => {
           clearTimeout(timer);
           stop?.();
           clearReply?.(ACK_PREFIX + requestId);
-          error == null ? resolve() : reject(error);
+          error == null ? resolve(value) : reject(error);
         };
         stop = subscribe(ACK_PREFIX + requestId, (ack) => {
           if (ack?.requestId !== requestId || ack.operationId !== operationId) return;
           finish(ack.ok ? null : Object.assign(
             Error(ack.error?.message ?? "Could not save the side-chat change"),
             { sideMutationUncertain: true },
-          ));
+          ), ack.value);
         });
         timer = setTimeout(() => finish(Object.assign(
           Error("The side-chat change has not been confirmed; retry after reconnecting"),

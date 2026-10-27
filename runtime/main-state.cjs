@@ -31,6 +31,28 @@ function sameOwner(a, b) {
     .every((key) => a[key] === b[key]);
 }
 
+/**
+ * Allocate a display name only at creation or first successful send, inside the native queue.
+ * Hidden and deleting siblings reserve their names until permanent cleanup. Parent/account/user
+ * boundaries prevent unrelated lists from consuming suffixes; existing legacy titles also count.
+ */
+function uniqueTitle(records, durable, base, phase) {
+  if (typeof base !== "string" || base.trim().length === 0) throw Error("Missing side-chat title");
+  const titles = new Set();
+  for (const record of Object.values(records)) {
+    const sibling = record.durable;
+    if (sibling.conversationId !== durable.conversationId &&
+        ["hostId", "sourceConversationId", "accountId", "userId"]
+          .every((key) => sibling[key] === durable[key])) titles.add(sibling.title);
+  }
+  base = base.trim();
+  let title = base;
+  for (let number = 2; titles.has(title); number++) {
+    title = phase === "placeholder" ? `${base} ${number}` : `${base} (${number})`;
+  }
+  return title;
+}
+
 /** Apply the pinned native layout filter to matching routes, active tabs and focus only. */
 function filterLayout(layout, conversationId) {
   if (layout?.version !== 1 || !Array.isArray(layout.routes) ||
@@ -87,7 +109,6 @@ function protectLayout(layout, state) {
     }
     pairs.set(tombstones, blocked);
   }
-  if (blocked.size === 0) return layout;
   const matching = new Set();
   for (const route of layout?.routes ?? []) {
     if (route.params?.hostId === "local" && blocked.has(route.params.conversationId)) {
@@ -103,6 +124,19 @@ function protectLayout(layout, state) {
     }
   }
   for (const id of matching) layout = filterLayout(layout, id);
+  // Saved descriptors own display titles. Native callbacks may publish routes captured before
+  // a rename; repairing only matching owned routes prevents those snapshots undoing the title.
+  if (layout?.version === 1 && Array.isArray(layout.routes)) {
+    let renamed = false;
+    const routes = layout.routes.map((route) => {
+      const durable = index?.records?.[route.params?.conversationId]?.durable;
+      if (durable?.title == null || !sameOwner(durable, route.params) ||
+          route.params.title === durable.title) return route;
+      renamed = true;
+      return { ...route, params: { ...route.params, title: durable.title } };
+    });
+    if (renamed) layout = { ...layout, routes };
+  }
   return layout;
 }
 
@@ -134,10 +168,42 @@ function mutate(state, mutation) {
       if (mutation.create === true && !Array.isArray(mutation.inheritedTurnIds)) {
         throw Error("A new saved side chat needs its inherited boundary");
       }
+      /** Naming phase is optional for legacy records; new forks explicitly mark their placeholder. */
+      const naming = previous?.naming ?? mutation.naming;
+      if (naming != null && !["placeholder", "content"].includes(naming.phase)) {
+        throw Error("Invalid side-chat naming phase");
+      }
       records[id] = {
-        durable: { ...durable, collaborationMode: durable.collaborationMode ?? null },
+        ...previous,
+        durable: {
+          ...durable, collaborationMode: durable.collaborationMode ?? null,
+          ...(previous != null ? { title: previous.durable.title } : naming == null ? {} : {
+            title: uniqueTitle(records, durable, mutation.naming.baseTitle, naming.phase),
+          }),
+        },
+        ...(naming == null ? {} : { naming: { phase: naming.phase } }),
         inheritedTurnIds: previous?.inheritedTurnIds ?? mutation.inheritedTurnIds,
         hidden: false, createdAt: previous?.createdAt ?? Date.now(), updatedAt: Date.now(),
+      };
+      break;
+    case "name-first-turn":
+      if (previous == null || previous.deletion || Object.hasOwn(tombstones, id)) {
+        throw Error("The side chat was deleted or is being deleted");
+      }
+      if (previous.naming?.phase === "content") break;
+      if (mutation.title != null && typeof mutation.title !== "string") {
+        throw Error("Invalid side-chat content title");
+      }
+      records[id] = {
+        ...previous,
+        durable: {
+          ...previous.durable,
+          title: mutation.title?.trim()
+            ? uniqueTitle(records, durable, mutation.title, "content") : previous.durable.title,
+        },
+        /** A successful textless first turn keeps its placeholder and cannot rename on followups. */
+        naming: { phase: "content" },
+        updatedAt: Date.now(),
       };
       break;
     case "hide":
@@ -196,7 +262,14 @@ function mutate(state, mutation) {
       throw Error("Unknown side-chat mutation");
   }
   next[REGISTRY_KEY] = { version: 1, records };
-  return { state: next, changed };
+  if (["remember", "name-first-turn"].includes(mutation.action)) {
+    for (const [key, layout] of Object.entries(next)) {
+      if (!key.startsWith(LAYOUT_PREFIX)) continue;
+      const protectedLayout = protectLayout(layout, next);
+      if (protectedLayout !== layout) { next[key] = protectedLayout; changed.add(key); }
+    }
+  }
+  return { state: next, changed, value: records[id]?.durable };
 }
 
 /**
@@ -230,11 +303,31 @@ function handle(context, sender, key, value) {
       store.set("electron-persisted-atom-state", result.state);
       applied = true;
       await store.flushOrThrow();
+      // Layout saves may run during the awaited flush. Publish their latest native snapshot
+      // rather than an earlier topology captured before a tab moved or another panel opened.
+      const committed = store.get("electron-persisted-atom-state") ?? result.state;
       for (const changedKey of result.changed) {
-        context.broadcastPersistedAtomUpdate(sender, changedKey, result.state[changedKey]);
+        context.broadcastPersistedAtomUpdate(sender, changedKey, committed[changedKey]);
       }
-      ack = { requestId: replyId, operationId: mutation.operationId, ok: true };
+      ack = { requestId: replyId, operationId: mutation.operationId, ok: true, value: result.value };
     } catch (error) {
+      // Failed naming flushes must remain retryable. Restore just this record and rebase any
+      // concurrent layout saves, without replacing unrelated native state written during flush.
+      if (applied && ["remember", "name-first-turn"].includes(mutation.action)) {
+        const current = store.get("electron-persisted-atom-state") ?? {};
+        const records = { ...current[REGISTRY_KEY].records };
+        if (previousRecord == null) delete records[mutation.durable.conversationId];
+        else records[mutation.durable.conversationId] = previousRecord;
+        const restored = { ...current, [REGISTRY_KEY]: { version: 1, records } };
+        for (const [key, layout] of Object.entries(restored)) {
+          if (!key.startsWith(LAYOUT_PREFIX)) continue;
+          restored[key] = protectLayout(layout, restored);
+          if (restored[key] !== layout) {
+            context.broadcastPersistedAtomUpdate(sender, key, restored[key]);
+          }
+        }
+        store.set("electron-persisted-atom-state", restored);
+      }
       // Clearing intent or removing a completed record requires a confirmed flush. If it fails,
       // restore only that conservative marker, retaining unrelated KV/layout writes made meanwhile.
       if (applied && previousRecord?.deletion &&

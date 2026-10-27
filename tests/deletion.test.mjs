@@ -256,7 +256,7 @@ test("cross-window title writes merge, cannot erase pending deletion, and late r
     assert.throws(() => runtime.guardSideRequest(second.storage, "local", "turn/start", {
       threadId: "delete-side",
     }), /deleted/);
-    await runtime.remember(second.storage, { ...durable("sibling"), title: "updated sibling" });
+    await runtime.nameFirstTurn(second.storage, durable("sibling"), "updated sibling");
     pending.resolve({});
     await deleting;
     assert.equal(runtime.readRegistry(second.storage).records.sibling.durable.title, "updated sibling");
@@ -457,4 +457,245 @@ test("actual native cleanup bypasses close callbacks and undo while preserving p
   assert.deepEqual(closed, ["sidechat:delete-side"], "cleanup is idempotent");
   context.__codexSideCleanTabs(scope, durable("sibling", "other-parent"));
   assert.deepEqual(relations, ["sibling"], "a different parent scope cannot remove its relation");
+});
+
+test("atomic names include hidden and legacy siblings, isolate identities, and survive restart", async () => {
+  const f = fixture();
+  try {
+    const second = f.newWindow();
+    const placeholder = { phase: "placeholder", baseTitle: "侧边聊天" };
+    const [a, b] = await Promise.all([
+      runtime.remember(f.storage, durable("a"), ["inherited"], placeholder),
+      runtime.remember(second.storage, durable("b"), ["inherited"], placeholder),
+    ]);
+    assert.deepEqual([a.title, b.title], ["侧边聊天", "侧边聊天 2"]);
+    await runtime.hide(f.storage, "a");
+    const c = await runtime.remember(second.storage, durable("c"), [], placeholder);
+    assert.equal(c.title, "侧边聊天 3", "hidden records reserve their visible name");
+    await runtime.remember(f.storage, { ...durable("legacy"), title: "分析请求" }, []);
+    const content = { phase: "content", baseTitle: "分析请求" };
+    const d = await runtime.remember(f.storage, durable("d"), [], content);
+    assert.equal(d.title, "分析请求 (2)", "preexisting legacy titles participate without migration");
+    for (const [id, parent, account] of [
+      ["other-parent", "different", "account"], ["other-account", "parent", "different"],
+    ]) {
+      const isolated = await runtime.remember(f.storage, durable(id, parent, account), [], placeholder);
+      assert.equal(isolated.title, "侧边聊天");
+    }
+    const otherUser = await runtime.remember(f.storage,
+      { ...durable("other-user"), userId: "different" }, [], placeholder);
+    assert.equal(otherUser.title, "侧边聊天");
+    f.restart();
+    const reopened = await runtime.remember(f.newWindow().storage, { ...a, title: "old snapshot" });
+    assert.equal(reopened.title, "侧边聊天");
+    assert.equal(runtime.readRegistry(f.storage).records.a.naming.phase, "placeholder");
+    assert.equal(f.listeners.size, 0, "mutation receipts leave no background subscriptions");
+  } finally { f.dispose(); }
+});
+
+test("only first own successful turn names; collisions, live rows and saved layouts share one title", async () => {
+  const f = fixture();
+  try {
+    const second = f.newWindow();
+    const naming = { phase: "placeholder", baseTitle: "Side chat" };
+    const a = await runtime.remember(f.storage, durable("a"), ["parent-turn"], naming);
+    const b = await runtime.remember(second.storage, durable("b"), ["parent-turn"], naming);
+    const inherited = [{ turnId: "parent-turn" }];
+    assert.equal(runtime.shouldNameFirstTurn(f.storage, "a", inherited), true);
+    assert.equal(runtime.shouldNameFirstTurn(f.storage, "a",
+      [...inherited, { turnId: "side-turn" }]), false);
+    assert.equal(runtime.shouldNameFirstTurn(f.storage, "a", null), false);
+    const key = "thread-tab-routes-v1:parent";
+    const oldLayout = {
+      version: 1, routes: [
+        { tabId: "sidechat:a", params: a }, { tabId: "sidechat:b", params: b },
+        { tabId: "unrelated", params: { ...a, accountId: "different", title: "private" } },
+      ], topology: {
+        right: { tabIds: ["sidechat:a"], activeTabId: "sidechat:a", open: true },
+        bottom: { tabIds: ["sidechat:b"], activeTabId: "sidechat:b", open: true },
+        focusArea: "right-panel", rightPanelFullWidth: false,
+      },
+    };
+    f.store.set("", { ...f.store.get(), [key]: oldLayout });
+    const [namedA, namedB] = await Promise.all([
+      runtime.nameFirstTurn(f.storage, a, "分析请求"),
+      runtime.nameFirstTurn(second.storage, b, "分析请求"),
+    ]);
+    assert.deepEqual([namedA.title, namedB.title], ["分析请求", "分析请求 (2)"]);
+    assert.equal(runtime.shouldNameFirstTurn(f.storage, "a", inherited), false);
+    const unchanged = await runtime.nameFirstTurn(second.storage, a, "later followup");
+    assert.equal(unchanged.title, namedA.title);
+    const restored = await runtime.remember(second.storage, a);
+    assert.equal(restored.title, namedA.title, "old restore cannot overwrite first-turn naming");
+    const rows = runtime.summaryRows(runtime.readRegistry(f.storage),
+      [{ conversationId: "a", title: "old open tab" }],
+      { accountId: "account", userId: "user", sourceConversationId: "parent" });
+    assert.deepEqual(rows.map(row => row.title), ["分析请求", "分析请求 (2)"]);
+    const saved = JSON.parse(fs.readFileSync(f.file))[key];
+    assert.deepEqual(saved.routes.map(route => route.params.title), ["分析请求", "分析请求 (2)", "private"]);
+    assert.deepEqual(saved.topology, oldLayout.topology);
+    assert.deepEqual(state.handle(f.context, f.window, key, oldLayout).value.routes,
+      saved.routes, "late layout publishes rebase titles against the authoritative registry");
+    f.restart();
+    const restarted = f.newWindow();
+    assert.equal(runtime.readRegistry(restarted.storage).records.a.naming.phase, "content");
+    assert.equal(runtime.shouldNameFirstTurn(restarted.storage, "a", inherited), false);
+  } finally { f.dispose(); }
+});
+
+test("duplicate first callbacks serialize, textless success seals naming, and deletion blocks late names", async () => {
+  const f = fixture();
+  try {
+    const second = f.newWindow();
+    const naming = { phase: "placeholder", baseTitle: "Side chat" };
+    const a = await runtime.remember(f.storage, durable("a"), [], naming);
+    const results = await Promise.all([
+      runtime.nameFirstTurn(f.storage, a, "first accepted"),
+      runtime.nameFirstTurn(second.storage, a, "duplicate success"),
+    ]);
+    assert.deepEqual(results.map(result => result.title), ["first accepted", "first accepted"]);
+    const b = await runtime.remember(f.storage, durable("b"), [], naming);
+    const textless = await runtime.nameFirstTurn(f.storage, b, null);
+    assert.equal(textless.title, b.title);
+    assert.equal(runtime.shouldNameFirstTurn(f.storage, "b", []), false);
+    assert.equal((await runtime.nameFirstTurn(f.storage, b, "second turn")).title, b.title);
+    const c = await runtime.remember(f.storage, durable("c"), [], naming);
+    await f.storage.commit({ action: "request-delete", durable: c, operationId: "delete" });
+    assert.throws(() => runtime.nameFirstTurn(second.storage, c, "late response"), /deleted/);
+    assert.equal(runtime.shouldNameFirstTurn(second.storage, "c", []), false);
+    await assert.rejects(second.storage.commit({
+      action: "name-first-turn", durable: { ...a, accountId: "different" }, title: "foreign",
+    }), /ownership changed/);
+    assert.equal(runtime.readRegistry(f.storage).records.a.durable.title, "first accepted");
+  } finally { f.dispose(); }
+});
+
+test("failed title flush keeps its previous name and phase, allowing the same success to retry", async () => {
+  const f = fixture();
+  try {
+    const a = await runtime.remember(f.storage, durable("a"), [], {
+      phase: "placeholder", baseTitle: "Side chat",
+    });
+    f.setFailure(Error("disk unavailable"));
+    await assert.rejects(runtime.nameFirstTurn(f.storage, a, "new title"), /disk unavailable/);
+    assert.equal(runtime.readRegistry(f.storage).records.a.durable.title, "Side chat");
+    assert.equal(runtime.readRegistry(f.storage).records.a.naming.phase, "placeholder");
+    assert.equal(JSON.parse(fs.readFileSync(f.file))[state.REGISTRY_KEY].records.a.durable.title,
+      "Side chat");
+    f.setFailure(null);
+    assert.equal((await runtime.nameFirstTurn(f.storage, a, "new title")).title, "new title");
+  } finally { f.dispose(); }
+});
+
+test("a panel move during title flush keeps the latest topology in disk and renderer broadcasts", async () => {
+  const f = fixture();
+  try {
+    const a = await runtime.remember(f.storage, durable("a"), [], {
+      phase: "placeholder", baseTitle: "Side chat",
+    });
+    const key = "thread-tab-routes-v1:parent";
+    const empty = { tabIds: [], activeTabId: null, open: false };
+    const occupied = { tabIds: ["sidechat:a"], activeTabId: "sidechat:a", open: true };
+    const old = {
+      version: 1, routes: [{ tabId: "sidechat:a", params: a }],
+      topology: { right: occupied, bottom: empty, focusArea: "right-panel", rightPanelFullWidth: false },
+    };
+    f.store.set("", { ...f.store.get(), [key]: old });
+    const disk = deferred();
+    const entered = deferred();
+    f.setFlush(() => { entered.resolve(); return disk.promise; });
+    const naming = runtime.nameFirstTurn(f.storage, a, "new title");
+    await entered.promise;
+    const moved = { ...old, topology: {
+      right: empty, bottom: occupied, focusArea: "bottom-panel", rightPanelFullWidth: false,
+    } };
+    const accepted = state.handle(f.context, f.window, key, moved).value;
+    f.store.set("", { ...f.store.get(), [key]: accepted });
+    disk.resolve();
+    await naming;
+    assert.deepEqual(f.cache.get(key).topology, moved.topology);
+    assert.equal(f.cache.get(key).routes[0].params.title, "new title");
+    assert.deepEqual(JSON.parse(fs.readFileSync(f.file))[key], f.cache.get(key));
+  } finally { f.dispose(); }
+});
+
+test("native title hook maps entity keys to turn IDs and follows right/bottom tabs until disposal", async () => {
+  const f = fixture();
+  try {
+    const a = await runtime.remember(f.storage, durable("a"), ["parent-turn"], {
+      phase: "placeholder", baseTitle: "Side chat",
+    });
+    const controllers = new Map(["right", "bottom"].map(target => [target, {
+      tabById$: target, updateTab: (_, id, update) => {
+        assert.equal(id, "sidechat:a"); Object.assign(tabs.get(target), update); updates++;
+      },
+    }]));
+    const initial = () => ({
+      tabId: "sidechat:a", title: a.title,
+      durableRoute: { kind: "side-conversation", params: a, payloadVersion: 1 },
+      props: { content: { hostId: "local", conversationId: "a", durable: {
+        ...a, retrySetup: () => "original callback",
+      } } },
+    });
+    const tabs = new Map([["right", initial()], ["bottom", null]]);
+    const subscriptions = new Set();
+    const released = [];
+    let updates = 0;
+    let canonicalReads = 0;
+    let account = "account";
+    const scope = {
+      value: { conversationId: "parent" },
+      get(key) {
+        if (key === "account") return account;
+        if (key === "user") return "user";
+        if (key === "canonical") { canonicalReads++; return [{ entityKey: "native-entity" }]; }
+        if (key === "turn-id") return "parent-turn";
+        return tabs.get(key);
+      },
+    };
+    const context = {
+      __scp: runtime, codexSidePatchStorage: () => f.storage,
+      q_: "account", Av: "user", Aw: "canonical", Nw: "turn-id", r2n: "native-count",
+      dG: target => controllers.get(target),
+      bv: (key, _, callback) => {
+        assert.equal(key, runtime.REGISTRY_KEY);
+        subscriptions.add(callback); return () => subscriptions.delete(callback);
+      },
+      __codexSideDeleteBinding: () => ({ binding: {
+        register: () => () => released.push("delete registration"),
+      } }),
+    };
+    vm.createContext(context);
+    vm.runInContext(fs.readFileSync(new URL("../hooks/delete-adapter.js", import.meta.url), "utf8")
+      .replaceAll("export function", "function"), context);
+    // Override only the manager factory; the actual tab registration and title adapter run intact.
+    context.__codexSideDeleteBinding = () => ({ binding: {
+      register: () => () => released.push("delete registration"),
+    } });
+    vm.runInContext(fs.readFileSync(new URL("../hooks/title-adapter.js", import.meta.url), "utf8")
+      .replaceAll("export function", "function").replaceAll("export async function", "async function"), context);
+    assert.equal(context.codexSidePatchIsFirstTurn(scope, "a"), true,
+      "native entity identity is not the inherited RPC turn ID");
+    const release = context.codexSidePatchRegisterDeletionTab(scope, a);
+    assert.equal(subscriptions.size, 1);
+    await context.codexSidePatchNameFirstTurn(scope, "a", "first title");
+    assert.equal(tabs.get("right").title, "first title");
+    assert.equal(tabs.get("right").durableRoute.params.title, "first title");
+    assert.equal(tabs.get("right").props.content.durable.title, "first title");
+    assert.equal(tabs.get("right").props.content.durable.retrySetup(), "original callback");
+    const before = canonicalReads;
+    assert.equal(context.codexSidePatchIsFirstTurn(scope, "a"), false);
+    assert.equal(canonicalReads, before, "completed naming avoids rescanning canonical turns");
+    tabs.set("bottom", initial()); tabs.set("right", null);
+    for (const callback of subscriptions) callback();
+    assert.equal(tabs.get("bottom").title, "first title");
+    assert.equal(updates, 2);
+    account = "different"; tabs.get("bottom").title = "retired";
+    for (const callback of subscriptions) callback();
+    assert.equal(tabs.get("bottom").title, "retired", "retired account scopes do not expose names");
+    assert.throws(() => context.codexSidePatchIsFirstTurn(scope, "a"), /identity changed/);
+    release();
+    assert.equal(subscriptions.size, 0);
+    assert.equal(released.length, 1);
+  } finally { f.dispose(); }
 });

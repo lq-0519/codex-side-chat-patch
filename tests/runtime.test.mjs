@@ -138,7 +138,8 @@ test("unchanged relation writes are skipped and parent discovery reuses only the
   persistence.remember(storage, descriptor);
   assert.equal(writes, 3, "reopening a hidden row must remain a real write");
   persistence.remember(storage, { ...descriptor, title: "changed" });
-  assert.equal(writes, 4, "title updates must not be suppressed");
+  assert.equal(writes, 3, "stale reopening titles must not replace the saved name or write again");
+  assert.equal(persistence.readRegistry(storage).records["side-one"].durable.title, "side-one");
   const identity = {
     accountId: "account-one", userId: "user-one", sourceConversationId: "parent-one",
   };

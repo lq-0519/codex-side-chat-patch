@@ -13,6 +13,8 @@ async function zt({
   instructionOverrides: o,
   parentNavigationPath: s,
   assertRequestCurrent,
+  /** Native cleaned display text, or the localized placeholder, allocated atomically with the fork. */
+  naming,
 }) {
   if (f(i)) {
     let r = await Ct({
@@ -70,7 +72,7 @@ Scheduled updates can’t run in side chats. If the user asks for a recurring mo
         parentNavigationPath: s, accountId, userId, contextInjected: !0,
         collaborationMode: a ?? null, presentation: `side-chat`,
       };
-      await __scp.remember(__sideStorage(), durable, inheritedTurnIds);
+      durable = await __scp.remember(__sideStorage(), durable, inheritedTurnIds, naming);
       current();
     }
     return {

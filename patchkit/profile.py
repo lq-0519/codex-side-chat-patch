@@ -26,6 +26,8 @@ ASSETS = {
         "4f94f2c3ec4fac892800f78f791c76615f29545f888454dee2f1db7b1f8e183f",
     "local-conversation-side-chats-d6c02eca2b12.js":
         "b79ef28b884928b27d9cd86f3dddedae35d335d9456674e4139f390e6250b189",
+    "composer-content-75731baf379a.js":
+        "827127a23cef7a9043815453ad52eecc5095c3b32155d07b651fcab2254745b6",
 }
 # MAIN_ASSETS independently pins native main-process storage coordination for deletion.
 MAIN_ASSETS = {
@@ -91,6 +93,7 @@ def build_replacements(archive):
         text,
         "instructionOverrides:Re(e.get(Te),e.get(we,i)??c?.settings.model??null),parentNavigationPath:",
         "assertRequestCurrent:()=>{if(!k.isCurrent())throw Error(`Side chat creation cancelled`);},"
+        "naming:{phase:u==null?`placeholder`:`content`,baseTitle:u??Bt(d,1)},"
         "instructionOverrides:Re(e.get(Te),e.get(we,i)??c?.settings.model??null),parentNavigationPath:",
     )
     # Cancellation archives the actual saved thread and then removes only the provisional relation.
@@ -113,7 +116,8 @@ def build_replacements(archive):
     text = replace_once(
         text,
         "if(!k.isCurrent())return await A(j),null;",
-        "if(!k.isCurrent())return await A(j),null;" + identity_check + ";",
+        "if(!k.isCurrent())return await A(j),null;" + identity_check + ";"
+        "if(j.durable?.hostId===`local`)T=j.durable.title??T;",
     )
     text = replace_once(
         text,
@@ -129,8 +133,9 @@ def build_replacements(archive):
     )
     text = replace_once(
         text, "if(P(j)||(k.fail(_),await A(j))",
-        "if(j.durable?.hostId===`local`)"
-        "await __scp.remember(__sideStorage(),{...j.durable,title:T});"
+        "if(j.durable?.hostId===`local`){"
+        "j.durable=await __scp.remember(__sideStorage(),{...j.durable,title:T});"
+        "T=j.durable.title??T;}"
         "if(!k.isCurrent())return await A(j),null;"
         + identity_check + ";if(P(j)||(k.fail(_),await A(j))",
     )
@@ -160,6 +165,29 @@ def build_replacements(archive):
         "}catch{return;}}S.openTab(e,Q,",
     )
     source[name] = IMPORT + SIDE_IMPORT + text
+
+    name = "composer-content-75731baf379a.js"
+    text = source[name]
+    # Only the two side-composer naming guards change; the shared canonical counter stays intact.
+    for conversation in ["r.localConversationId", "c.localConversationId"]:
+        text = replace_once(
+            text, f"(e.get(El,{conversation})??0)===0",
+            f"__sideIsFirstTurn(e,{conversation})",
+        )
+    text = replace_once(
+        text,
+        "function kI(e,t,n){n!=null&&Gl.updateTab(e,`sidechat:${t}`,{title:n})}",
+        "function kI(e,t,n){"
+        "if(__scp.isSavedSide(__sideStorage(),`local`,t))"
+        "__sideNameFirstTurn(e,t,n).catch(error=>console.error(__scp.errorJSON(error)));"
+        "else n!=null&&Gl.updateTab(e,`sidechat:${t}`,{title:n})}",
+    )
+    source[name] = IMPORT + (
+        'import{codexSidePatchStorage as __sideStorage,'
+        'codexSidePatchIsFirstTurn as __sideIsFirstTurn,'
+        'codexSidePatchNameFirstTurn as __sideNameFirstTurn}'
+        'from"./app-initial-feb30b196d11.js";\n'
+    ) + text
 
     name = "persistent-e62eb8d90af6.js"
     source[name] = IMPORT + SIDE_IMPORT + replace_between(
@@ -259,6 +287,7 @@ export function codexSidePatchRegistryAtom(){
 }
 """
     text += (ROOT / "hooks/delete-adapter.js").read_text()
+    text += (ROOT / "hooks/title-adapter.js").read_text()
     source[name] = IMPORT + text
 
     name = "local-conversation-thread-f8411a03e6c2.js"
@@ -341,6 +370,7 @@ def implementation_digest():
         ROOT / "patchkit/profile.py", ROOT / "runtime/persistence.mjs",
         ROOT / "hooks/local-create.js", ROOT / "hooks/restore.js", ROOT / "hooks/summary.js",
         ROOT / "hooks/delete-adapter.js", ROOT / "hooks/side-list.js", ROOT / "runtime/main-state.cjs",
+        ROOT / "hooks/title-adapter.js",
         ROOT / "patchkit/manager.py", ROOT / "patchkit/integrity.py",
     ]
     return sha256_bytes(b"".join(path.read_bytes() for path in files))
