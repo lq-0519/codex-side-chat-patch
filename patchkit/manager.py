@@ -18,7 +18,7 @@ import uuid
 
 from .archive import read_file, read_header, rebuild, sha256_bytes, sha256_file
 from .integrity import synchronize_framework, verify_framework
-from .profile import ASSETS, PROFILE, ROOT, build_replacements, implementation_digest
+from .profile import ASSETS, MAIN_ASSETS, PROFILE, ROOT, build_replacements, implementation_digest
 
 
 # DEFAULT_APP is inspected by default; apply, rollback and opt-in launch can write to it.
@@ -180,7 +180,7 @@ def inspect(app, allow_updated_version=False):
     """Classify bundles, optionally accepting updates whose target code and engine are unchanged.
 
     Strict mode keeps the original build/whole-archive pin. Compatibility mode still requires
-    vendor signing, ASAR integrity, all four exact asset hashes and the same engine version.
+    vendor signing, ASAR integrity, every exact target asset hash and the same engine version.
     A matched update is explicitly marked as awaiting desktop acceptance.
     """
     app = Path(app).expanduser().resolve()
@@ -229,6 +229,10 @@ def inspect(app, allow_updated_version=False):
             for name, expected in ASSETS.items():
                 if sha256_bytes(read_file(path, "webview/assets/" + name)) != expected:
                     result["reason"] = "Unknown original asset: " + name
+                    return result
+            for name, expected in MAIN_ASSETS.items():
+                if sha256_bytes(read_file(path, name)) != expected:
+                    result["reason"] = "Unknown original main-process asset: " + name
                     return result
         except (KeyError, ValueError) as error:
             result["reason"] = "Patch target verification failed: " + str(error)

@@ -4,7 +4,11 @@
  */
 async function H(e, t, n, a) {
   let o = t.hostId ?? `durable`;
-  const current = () => U(e, t);
+  /** A descriptor cannot reopen after either deletion claim or index removal, including late RPCs. */
+  const current = () => {
+    U(e, t);
+    __scp.assertUsable(__sideStorage(), t, e.get(__sideAccount), e.get(__sideUser));
+  };
   current();
   try {
     const params = {

@@ -24,6 +24,13 @@ ASSETS = {
         "b6414e8a80a8df06a07223db3342f6af2f55ea7f1c3611e87a832f306412bfaa",
     "local-conversation-thread-f8411a03e6c2.js":
         "4f94f2c3ec4fac892800f78f791c76615f29545f888454dee2f1db7b1f8e183f",
+    "local-conversation-side-chats-d6c02eca2b12.js":
+        "b79ef28b884928b27d9cd86f3dddedae35d335d9456674e4139f390e6250b189",
+}
+# MAIN_ASSETS independently pins native main-process storage coordination for deletion.
+MAIN_ASSETS = {
+    ".vite/build/main-0FVbxCQU.js":
+        "fad45aa7d81de6fe166704e8879e3b7cbfc85151e72df7946853336c7cbc5a3c",
 }
 # ROOT locates tracked templates only; all extraction and validation output stays outside Git.
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,9 +42,15 @@ IMPORT = 'import*as __scp from"./codex-native-side-patch-v1.mjs";\n'
 SIDE_IMPORT = (
     'import{ler as __sideAccount,b7n as __sideUser,g5n as __sideIntl,'
     'codexSidePatchStorage as __sideStorage,'
+    'codexSidePatchRegisterDeletionTab as __sideRegisterDeleteTab,'
     'codexSidePatchRegistryAtom as __sideRegistryAtom}'
     'from"./app-initial-feb30b196d11.js";\n'
 )
+# UI_ASSETS pins unchanged native exports and Portal behavior used by menu/dialog imports.
+UI_ASSETS = {
+    "app-shared-2cae01273bae.js":
+        "3ca9f1b7132de9c81602a5cbb55822107add07c7ed7e00ad5256c372aeb1ec36",
+}
 
 
 def replace_once(text, old, new):
@@ -58,6 +71,9 @@ def replace_between(text, beginning, following, replacement):
 
 def build_replacements(archive):
     """Construct deterministic, scoped patches from exact original packaged asset hashes."""
+    for name, digest in UI_ASSETS.items():
+        if sha256_bytes(read_file(archive, "webview/assets/" + name)) != digest:
+            raise ValueError("Unknown native UI asset: " + name)
     source = {}
     for name, digest in ASSETS.items():
         original = read_file(archive, "webview/assets/" + name)
@@ -87,12 +103,12 @@ def build_replacements(archive):
         "{useAppServerPins:!1,source:`side-chat-cancelled`}};"
         "await __scp.loggedRpc(`archiveConversation`,p,()=>"
         "H(e,t.hostId).archiveConversation(t.conversationId,p.options));"
-        "if(t.hostId===`local`)__scp.forgetCancelled(__sideStorage(),t.conversationId);}"
+        "if(t.hostId===`local`)await __scp.forgetCancelled(__sideStorage(),t.conversationId);}"
         "return",
     )
     # Recheck after creation/resume and after caller preparation before completing a native panel.
     identity_check = (
-        "__scp.assertIdentity(j.durable,e.get(__sideAccount),e.get(__sideUser))"
+        "__scp.assertUsable(__sideStorage(),j.durable,e.get(__sideAccount),e.get(__sideUser))"
     )
     text = replace_once(
         text,
@@ -104,26 +120,49 @@ def build_replacements(archive):
         "if(M==null&&h!=null&&await h(t),!k.isCurrent())",
         "if(M==null&&h!=null&&await h(t)," + identity_check + ",!k.isCurrent())",
     )
-    # Persist the final title before complete() triggers renderer subscriptions and layout saving.
+    # P is synchronous: persist its final title at the preceding async boundary before complete().
     text = replace_once(
         text,
         "let{conversationId:s,hostId:u}=r;E!=null",
         "let{conversationId:s,hostId:u}=r;"
-        "if(r.durable?.hostId===`local`)"
-        "__scp.remember(__sideStorage(),{...r.durable,title:T});E!=null",
+        "__scp.assertUsable(__sideStorage(),r.durable,e.get(__sideAccount),e.get(__sideUser));E!=null",
+    )
+    text = replace_once(
+        text, "if(P(j)||(k.fail(_),await A(j))",
+        "if(j.durable?.hostId===`local`)"
+        "await __scp.remember(__sideStorage(),{...j.durable,title:T});"
+        "if(!k.isCurrent())return await A(j),null;"
+        + identity_check + ";if(P(j)||(k.fail(_),await A(j))",
     )
     # Normal close already avoids native deletion for durable threads. Preserve its discovery row.
     text = replace_once(
         text,
         "(r.durable==null||fe(e,g)==null)&&(m?.(),Ce(e,i,s),f?.(!0))",
         "(r.durable==null||fe(e,g)==null)&&("
-        "r.durable?.hostId===`local`&&__scp.hide(__sideStorage(),s),"
+        "r.durable?.hostId===`local`&&Promise.resolve(__scp.hide(__sideStorage(),s))"
+        ".catch(error=>console.error(__scp.errorJSON(error))),"
         "m?.(),Ce(e,i,s),f?.(!0))",
+    )
+    text = replace_once(
+        text,
+        "let b=()=>{if(r.durable!=null)return;let t=e.get(S.tabById$,g)?.contentInstance;",
+        "let b=()=>{if(r.durable?.hostId===`local`)"
+        "return __sideRegisterDeleteTab(e,r.durable);"
+        "if(r.durable!=null)return;let t=e.get(S.tabById$,g)?.contentInstance;",
+    )
+    # A normal close that was already awaiting voice shutdown must not rebuild a deleted tab.
+    text = replace_once(
+        text,
+        "onClose:()=>{h?.();let t=()=>{S.openTab(e,Q,",
+        "onClose:()=>{h?.();let t=()=>{"
+        "if(r.durable?.hostId===`local`){try{"
+        "__scp.assertUsable(__sideStorage(),r.durable,e.get(__sideAccount),e.get(__sideUser));"
+        "}catch{return;}}S.openTab(e,Q,",
     )
     source[name] = IMPORT + SIDE_IMPORT + text
 
     name = "persistent-e62eb8d90af6.js"
-    source[name] = IMPORT + replace_between(
+    source[name] = IMPORT + SIDE_IMPORT + replace_between(
         source[name], "async function H(", "function U(",
         (ROOT / "hooks/restore.js").read_text(),
     )
@@ -172,12 +211,45 @@ def build_replacements(archive):
         "__scp.loggedRpc(`thread/fork`,n,()=>o.sendRequest(`thread/fork`,n,f)):"
         "o.sendRequest(`thread/fork`,n,f)),v=cs(_.thread.id)",
     )
+    # Native manager request admission blocks late sends/restores once the deletion claim exists.
+    text = replace_once(
+        text,
+        "async sendRequest(e,t,n){this.assertActive();"
+        "let r=await this.requestClient.sendRequest(e,t,n);",
+        "async sendRequest(e,t,n){this.assertActive();"
+        "__scp.guardSideRequest(codexSidePatchStorage(),this.hostId,e,t);"
+        "let r=await this.requestClient.sendRequest(e,t,n);",
+    )
+    text = replace_once(
+        text,
+        "sendFollowUpMessage(e,t){return Vdn(",
+        "sendFollowUpMessage(e,t){"
+        "__scp.guardSideRequest(codexSidePatchStorage(),this.hostId,`turn/start`,{threadId:e});"
+        "return Vdn(",
+    )
+    text = replace_once(
+        text,
+        "sendThreadFollowerRequest(e,t,n,r){if(this.assertActive(),",
+        "sendThreadFollowerRequest(e,t,n,r){"
+        "__scp.guardSideRequest(codexSidePatchStorage(),this.hostId,t,n);"
+        "if(this.assertActive(),",
+    )
+    text = replace_once(
+        text,
+        "this.streamRecovery.markAllConversationsNeedResumeAfterReconnect(e)}async ",
+        "this.streamRecovery.markAllConversationsNeedResumeAfterReconnect(e),"
+        "__scp.recoverDeletions(this)}async ",
+    )
     text += """
 /** Reuse one native KV adapter across hot selectors; reads still fetch the latest native snapshot. */
 var __codexSideStorage;
 /** Lazily bind existing persistent KV functions after native initialization, without new I/O. */
 export function codexSidePatchStorage(){
-  return __codexSideStorage??=({readValue:_v,writeValue:vv});
+  return __codexSideStorage??=__scp.mutationStorage({
+    readValue:_v,publish:(key,value)=>hv()(key,value),
+    subscribe:(key,callback)=>bv(key,void 0,callback),
+    clearReply:key=>gv(key,void 0,!1)
+  });
 }
 /** Lazily initialized native KV atom makes saved and hidden rows reactive across windows. */
 var __codexSideRegistryAtom;
@@ -186,6 +258,7 @@ export function codexSidePatchRegistryAtom(){
   return __codexSideRegistryAtom??=(Ev(()=>__scp.REGISTRY_KEY,null));
 }
 """
+    text += (ROOT / "hooks/delete-adapter.js").read_text()
     source[name] = IMPORT + text
 
     name = "local-conversation-thread-f8411a03e6c2.js"
@@ -199,12 +272,15 @@ export function codexSidePatchRegistryAtom(){
     text = replace_once(
         text,
         "r=e=>{Aa(t,`right`,e.tabId)}",
-        "r=e=>{if(e.durable){"
+        "r=e=>{if(e.deletion)return;if(e.isSavedClosed&&e.durable){"
         "lg(t,NF,{durable:e.durable,sourceConversationId:e.durable.sourceConversationId,"
         "hostId:e.durable.hostId,cwd:null,collaborationMode:e.durable.collaborationMode,"
         "displayTitle:e.title,intl:t.get(__sideIntl),target:`right`})"
         ".catch(error=>t.get(Fe).danger(error.message));"
         "}else Aa(t,`right`,e.tabId)}",
+    )
+    text = replace_once(
+        text, "(Ev,{sideChats:n,onOpen:r})", "(Ev,{sideChats:n,onOpen:r,scope:t})",
     )
     # Runtime text depends on the actual registered thread, so unchanged temporary hosts stay truthful.
     text = replace_once(
@@ -220,8 +296,42 @@ export function codexSidePatchRegistryAtom(){
         "description:`Explains the lifetime of this side chat`",
     )
     source[name] = IMPORT + SIDE_IMPORT + text
+
+    name = "local-conversation-side-chats-d6c02eca2b12.js"
+    text = replace_between(
+        source[name], "function oe(", "function ce(",
+        (ROOT / "hooks/side-list.js").read_text(),
+    )
+    # Native menus portal outside summary clipping; pin their exports and lazy initialization.
+    text = (
+        'import{XVt as __sideReactFactory,D6 as __sideInitButton,IN as __sideInitDialog,'
+        'XN as __sideInitMenu,UN as __sideMenu,JN as __sideMenuItem,'
+        'AN as __sideInitLayout,aX as __sideInitSlot,Sit as __sideInitText,'
+        'Vst as __sideInitContainer,MN as __sideDialog,wN as __sideDialogForm,'
+        'DN as __sideDialogSection,EN as __sideDialogHeader,FN as __sideDialogTitle,'
+        'PN as __sideDialogDescription,TN as __sideDialogActions,T6 as __sideButton,'
+        'Oit as __sideToasts}from"./app-shared-2cae01273bae.js";\n'
+        'import{codexSidePatchDelete as __sideDelete,'
+        'codexSidePatchRegisterDeletionScope as __sideRegisterDeleteScope}'
+        'from"./app-initial-feb30b196d11.js";\n'
+    ) + text
+    source[name] = text
     result = {"webview/assets/" + name: value.encode() for name, value in source.items()}
     result[RUNTIME_PATH] = (ROOT / "runtime/persistence.mjs").read_bytes()
+    for name, digest in MAIN_ASSETS.items():
+        original = read_file(archive, name)
+        if sha256_bytes(original) != digest:
+            raise ValueError("Unknown original main-process asset: " + name)
+        text = replace_once(
+            original.decode(), "updatePersistedAtomState(e,t,n,r){",
+            "updatePersistedAtomState(e,t,n,r){"
+            "let __sideState=__codexSideState.handle(this,e,t,n);"
+            "if(__sideState.handled)return;n=__sideState.value;",
+        )
+        result[name] = (
+            'const __codexSideState=require("./codex-native-side-state-v1.cjs");\n' + text
+        ).encode()
+    result[".vite/build/codex-native-side-state-v1.cjs"] = (ROOT / "runtime/main-state.cjs").read_bytes()
     return result
 
 
@@ -230,6 +340,7 @@ def implementation_digest():
     files = [
         ROOT / "patchkit/profile.py", ROOT / "runtime/persistence.mjs",
         ROOT / "hooks/local-create.js", ROOT / "hooks/restore.js", ROOT / "hooks/summary.js",
+        ROOT / "hooks/delete-adapter.js", ROOT / "hooks/side-list.js", ROOT / "runtime/main-state.cjs",
         ROOT / "patchkit/manager.py", ROOT / "patchkit/integrity.py",
     ]
     return sha256_bytes(b"".join(path.read_bytes() for path in files))

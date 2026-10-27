@@ -70,7 +70,8 @@ Scheduled updates can’t run in side chats. If the user asks for a recurring mo
         parentNavigationPath: s, accountId, userId, contextInjected: !0,
         collaborationMode: a ?? null, presentation: `side-chat`,
       };
-      __scp.remember(__sideStorage(), durable, inheritedTurnIds);
+      await __scp.remember(__sideStorage(), durable, inheritedTurnIds);
+      current();
     }
     return {
       conversationId: u.conversationId, hostId: i, durable,
@@ -89,7 +90,7 @@ Scheduled updates can’t run in side chats. If the user asks for a recurring mo
       };
       await __scp.loggedRpc(`archiveConversation`, archiveParams, () =>
         H(e, i).archiveConversation(u.conversationId, archiveParams.options));
-      __scp.forgetCancelled(__sideStorage(), u.conversationId);
+      await __scp.forgetCancelled(__sideStorage(), u.conversationId);
     }
     throw error;
   }

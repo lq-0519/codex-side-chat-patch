@@ -143,7 +143,10 @@ test("unchanged relation writes are skipped and parent discovery reuses only the
     accountId: "account-one", userId: "user-one", sourceConversationId: "parent-one",
   };
   const originalRows = [{ conversationId: "side-one" }];
-  assert.strictEqual(persistence.summaryRows(value, originalRows, identity), originalRows);
+  const enriched = persistence.summaryRows(value, originalRows, identity);
+  assert.equal(enriched[0].durable.conversationId, "side-one");
+  assert.equal(enriched[0].isSavedClosed, false);
+  assert.equal(originalRows[0].durable, undefined, "native input rows must remain immutable");
   const empty = [];
   assert.strictEqual(persistence.summaryRows(value, empty, {
     ...identity, sourceConversationId: "other-parent",
@@ -374,18 +377,23 @@ test("remote creation retains the native temporary fork and creates no local sav
 function restorationFixture(changeAt) {
   let account = "account-one";
   const requests = [];
+  const storage = storageFixture();
+  persistence.remember(storage, durable(), []);
   const context = {
     __scp: persistence, r: () => false, f: () => true,
+    __sideStorage: () => storage, __sideAccount: "account", __sideUser: "user",
     U: (_, descriptor) => persistence.assertIdentity(descriptor, account, "user-one"),
     d: async () => {
       if (changeAt === "root-error") throw Error("Native workspace access failed");
       if (changeAt === "roots") account = "account-two";
+      if (changeAt === "delete-roots") persistence.forgetCancelled(storage, "side-one");
       return ["/empty-workspace"];
     },
     S: (_, host) => ({
       resumeConversation: async (params, options) => {
         requests.push({ host, params, options });
         if (changeAt === "resume") account = "account-two";
+        if (changeAt === "delete-resume") persistence.forgetCancelled(storage, "side-one");
         return { status: "ready" };
       },
     }),
@@ -394,8 +402,10 @@ function restorationFixture(changeAt) {
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/restore.js", import.meta.url), "utf8"), context);
   return {
-    invoke: () => context.H({}, durable(), "parent-one", "/thread/parent-one"),
-    requests,
+    invoke: () => context.H({
+      get: (key) => key === "account" ? account : "user-one",
+    }, durable(), "parent-one", "/thread/parent-one"),
+    requests, storage,
   };
 }
 
@@ -427,4 +437,13 @@ test("workspace failure retains the native retryable restore result without star
   assert.equal(result.durable.conversationId, "side-one");
   assert.equal(result.setupError.message, "Native workspace access failed");
   assert.equal(fixture.requests.length, 0);
+});
+
+test("actual restore rejects deletion during workspace lookup or native resume without recreating a row", async () => {
+  for (const boundary of ["delete-roots", "delete-resume"]) {
+    const fixture = restorationFixture(boundary);
+    await assert.rejects(fixture.invoke(), /deleted/);
+    assert.equal(fixture.requests.length, boundary === "delete-roots" ? 0 : 1);
+    assert.equal(persistence.readRegistry(fixture.storage).records["side-one"], undefined);
+  }
 });

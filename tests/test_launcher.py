@@ -27,6 +27,9 @@ class AutomaticStartup(unittest.TestCase):
             "webview/assets/" + name: ("globalThis.asset = " + str(index) + ";\n").encode()
             for index, name in enumerate(manager.ASSETS)
         }
+        self.assets.update({
+            name: b"globalThis.nativeMainAsset = true;\n" for name in manager.MAIN_ASSETS
+        })
         self.assets["webview/assets/unrelated.js"] = b"globalThis.unrelated = 1;\n"
         self.write_app()
         self.original_hash = archive.sha256_file(manager.archive_path(self.app))
@@ -36,7 +39,12 @@ class AutomaticStartup(unittest.TestCase):
             patch.dict(manager.PROFILE, {"asar_sha256": self.original_hash}),
             patch.object(manager, "ASSETS", {
                 Path(name).name: archive.sha256_bytes(data)
-                for name, data in self.assets.items() if not name.endswith("unrelated.js")
+                for name, data in self.assets.items()
+                if name.startswith("webview/assets/") and not name.endswith("unrelated.js")
+            }),
+            patch.object(manager, "MAIN_ASSETS", {
+                name: archive.sha256_bytes(data)
+                for name, data in self.assets.items() if name.startswith(".vite/")
             }),
             patch.object(manager, "build_replacements", side_effect=self.replacements),
             patch.object(manager, "verify_signature"),

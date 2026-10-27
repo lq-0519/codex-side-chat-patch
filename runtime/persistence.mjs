@@ -18,6 +18,8 @@ const validatedRegistries = new WeakSet();
  * in full, but their one-use sets are not retained; persisted chat count cannot grow this cache.
  */
 const inheritedBoundaries = new Map();
+/** Native IPC clones ID arrays; weak ownership lets deletion release all cached snapshots of a UUID. */
+const inheritedOwners = new WeakMap();
 /** Bound cache entry count independently of the number of durable side chats on disk. */
 const MAX_CACHED_BOUNDARIES = 4;
 /** Bound retained membership IDs without truncating any canonical or displayed history. */
@@ -56,7 +58,10 @@ export function readRegistry(storage) {
       typeof record.durable.userId !== "string" ||
       !Array.isArray(record.inheritedTurnIds) ||
       !record.inheritedTurnIds.every((turnId) => typeof turnId === "string") ||
-      typeof record.hidden !== "boolean"
+      typeof record.hidden !== "boolean" ||
+      (record.deletion != null &&
+        (typeof record.deletion.operationId !== "string" ||
+          !["requested", "native-deleted"].includes(record.deletion.phase)))
     ) {
       throw new Error("The saved side-chat index contains an invalid record");
     }
@@ -85,6 +90,7 @@ function inheritedSet(record) {
     cachedBoundaryIds -= oldest.length;
   }
   inheritedBoundaries.set(ids, inherited);
+  inheritedOwners.set(ids, record.durable.conversationId);
   cachedBoundaryIds += ids.length;
   return inherited;
 }
@@ -107,6 +113,9 @@ function sameDescriptor(previous, updated) {
 export function remember(storage, durable, inheritedTurnIds) {
   const index = readRegistry(storage);
   const previous = index.records[durable.conversationId];
+  if (previous?.deletion || (previous == null && inheritedTurnIds == null)) {
+    throw new Error("The side chat was deleted or is being deleted");
+  }
   const descriptor = { ...durable, collaborationMode: durable.collaborationMode ?? null };
   const boundary = inheritedTurnIds ?? previous?.inheritedTurnIds ?? [];
   if (
@@ -117,6 +126,9 @@ export function remember(storage, durable, inheritedTurnIds) {
   ) {
     return;
   }
+  if (storage.commit) return storage.commit({
+    action: "remember", durable: descriptor, create: inheritedTurnIds != null, inheritedTurnIds,
+  });
   const record = {
     durable: descriptor,
     inheritedTurnIds: boundary,
@@ -134,7 +146,8 @@ export function remember(storage, durable, inheritedTurnIds) {
 export function hide(storage, conversationId) {
   const index = readRegistry(storage);
   const record = index.records[conversationId];
-  if (record == null || record.hidden) return;
+  if (record == null || record.hidden || record.deletion) return;
+  if (storage.commit) return storage.commit({ action: "hide", durable: record.durable });
   storage.writeValue(REGISTRY_KEY, {
     version: 1,
     records: {
@@ -148,6 +161,9 @@ export function hide(storage, conversationId) {
 export function forgetCancelled(storage, conversationId) {
   const index = readRegistry(storage);
   if (!(conversationId in index.records)) return;
+  if (storage.commit) return storage.commit({
+    action: "cancel-creation", durable: index.records[conversationId].durable,
+  });
   const records = { ...index.records };
   delete records[conversationId];
   storage.writeValue(REGISTRY_KEY, { version: 1, records });
@@ -168,6 +184,18 @@ export function assertIdentity(durable, accountId, userId) {
   if (durable?.hostId === "local" &&
       (durable.accountId !== accountId || durable.userId !== userId)) {
     throw new Error("The signed-in identity changed before the side chat could open");
+  }
+}
+
+/** Refuse deleted or deleting restores at every asynchronous boundary and final tab acceptance. */
+export function assertUsable(storage, durable, accountId, userId) {
+  assertIdentity(durable, accountId, userId);
+  if (durable?.hostId !== "local") return;
+  const record = readRegistry(storage).records[durable.conversationId];
+  if (record == null || record.deletion ||
+      record.durable.sourceConversationId !== durable.sourceConversationId ||
+      record.durable.accountId !== accountId || record.durable.userId !== userId) {
+    throw new Error("The side chat was deleted or is being deleted");
   }
 }
 
@@ -248,18 +276,23 @@ export function summaryRows(index, openRows, { accountId, userId, sourceConversa
   }
   const saved = accounts.get(accountId)?.get(userId)?.get(sourceConversationId);
   if (saved == null) return openRows;
-  let rows = openRows;
+  const byId = new Map(saved.map((record) => [record.durable.conversationId, record]));
+  let rows = openRows.map((row) => {
+    const record = byId.get(row.conversationId);
+    return record == null ? row : {
+      ...row, durable: record.durable, deletion: record.deletion, isSavedClosed: false,
+    };
+  });
   const opened = new Set(openRows.map((row) => row.conversationId));
   for (const record of saved) {
     const durable = record.durable;
     if (!opened.has(durable.conversationId)) {
-      if (rows === openRows) rows = [...openRows];
       rows.push({
         conversationId: durable.conversationId,
         tabId: `sidechat:${durable.conversationId}`,
         title: durable.title ?? "Side chat",
         isResponseInProgress: false,
-        durable,
+        durable, deletion: record.deletion, isSavedClosed: true,
       });
     }
   }
@@ -328,4 +361,236 @@ export async function inheritedBoundary(sendRequest, conversationId, assertCurre
     cursors.add(cursor);
   } while (cursor != null);
   return [...ids];
+}
+
+/** Replies are ephemeral signals; no receipt keys are retained in the renderer KV cache. */
+const ACK_PREFIX = "codex-native-side-chat-ack-v1:";
+/** One active deletion per native thread per renderer; shared main state owns cross-window claims. */
+const activeDeletions = new Map();
+/** Attach one listener to each local manager, with parent scope bindings for live tab cleanup. */
+const deletionManagers = new WeakMap();
+/** Native notifications preserve success evidence even when their KV flush races an RPC error. */
+const nativeDeletionEvidence = new Set();
+
+/**
+ * Publish mutation commands without optimistic whole-registry replacement. Native main replies
+ * only after flushOrThrow; timeout preserves pending intent and cannot authorize a delete RPC.
+ */
+export function mutationStorage({ readValue, publish, subscribe, clearReply, timeoutMs = 30000 }) {
+  return {
+    readValue,
+    /** Resolve only the matching main-process request receipt, then release all temporary state. */
+    commit(mutation) {
+      const requestId = crypto.randomUUID();
+      const operationId = mutation.operationId ?? crypto.randomUUID();
+      return new Promise((resolve, reject) => {
+        let stop;
+        let timer;
+        /** Release the one-shot subscription regardless of acknowledgement, timeout or publish error. */
+        const finish = (error) => {
+          clearTimeout(timer);
+          stop?.();
+          clearReply?.(ACK_PREFIX + requestId);
+          error == null ? resolve() : reject(error);
+        };
+        stop = subscribe(ACK_PREFIX + requestId, (ack) => {
+          if (ack?.requestId !== requestId || ack.operationId !== operationId) return;
+          finish(ack.ok ? null : Object.assign(
+            Error(ack.error?.message ?? "Could not save the side-chat change"),
+            { sideMutationUncertain: true },
+          ));
+        });
+        timer = setTimeout(() => finish(Object.assign(
+          Error("The side-chat change has not been confirmed; retry after reconnecting"),
+          { sideMutationUncertain: true },
+        )), timeoutMs);
+        try {
+          publish(REGISTRY_KEY, {
+            kind: "codex-side-mutation-v1", requestId,
+            mutation: { ...mutation, operationId },
+          });
+        } catch (error) { finish(error); }
+      });
+    },
+  };
+}
+
+/** Check current ownership immediately before a destructive operation; parent IDs are forbidden. */
+function ownedRecord(storage, durable, readIdentity) {
+  const { accountId, userId } = readIdentity();
+  assertIdentity(durable, accountId, userId);
+  const record = readRegistry(storage).records[durable.conversationId];
+  if (durable.hostId !== "local" || durable.conversationId === durable.sourceConversationId ||
+      record == null ||
+      ["accountId", "userId", "sourceConversationId", "hostId"]
+        .some((key) => record.durable[key] !== durable[key])) {
+    throw Error("This saved side chat is no longer available");
+  }
+  return record;
+}
+
+/** Recognize only the exact pinned engine's missing-rollout error for this target UUID. */
+export function missingDeletedThread(error, conversationId) {
+  return (error?.jsonRpcCode ?? error?.code) === -32600 &&
+    error?.message === `no rollout found for thread id ${conversationId}`;
+}
+
+/** Release only the target's retained display boundary; canonical history stays native-owned. */
+function releaseBoundary(record) {
+  for (const ids of inheritedBoundaries.keys()) {
+    if (inheritedOwners.get(ids) !== record.durable.conversationId) continue;
+    inheritedBoundaries.delete(ids);
+    inheritedOwners.delete(ids);
+    cachedBoundaryIds -= ids.length;
+  }
+}
+
+/**
+ * Complete a user-confirmed deletion, or continue its durable operation after a restart.
+ * Native success is never undone because live layout or KV cleanup failed. Definitive native
+ * RPC errors release only the matching requested claim; transport ambiguity retains intent.
+ */
+export function permanentlyDelete({ storage, durable, manager, readIdentity, cleanup, nativeEvidence = false }) {
+  const id = durable.conversationId;
+  if (activeDeletions.has(id)) return activeDeletions.get(id);
+  const work = (async () => {
+    let record = ownedRecord(storage, durable, readIdentity);
+    const operationId = record.deletion?.operationId ?? crypto.randomUUID();
+    if (record.deletion == null) {
+      await storage.commit({ action: "request-delete", durable, operationId });
+    }
+    record = ownedRecord(storage, durable, readIdentity);
+    if (record.deletion?.operationId !== operationId) throw Error("Deletion ownership changed");
+    if (record.deletion.phase !== "native-deleted" &&
+        !nativeEvidence && !nativeDeletionEvidence.has(id)) {
+      const params = { threadId: id };
+      try {
+        await loggedRpc("thread/delete", params, () => {
+          ownedRecord(storage, durable, readIdentity);
+          return manager.sendRequest("thread/delete", params);
+        });
+      } catch (error) {
+        if (!missingDeletedThread(error, id) && !nativeDeletionEvidence.has(id)) {
+          const latest = readRegistry(storage).records[id];
+          if (latest?.deletion?.phase !== "native-deleted") {
+            if (typeof (error?.jsonRpcCode ?? error?.code) === "number") {
+              await storage.commit({ action: "cancel-delete", durable, operationId });
+            }
+            throw error;
+          }
+        }
+      }
+    }
+    // Identity can change while native deletion runs; its evidence is safe to persist, but a
+    // newly signed-in identity must not initiate cleanup or another RPC for the captured owner.
+    await storage.commit({ action: "native-deleted", durable, operationId });
+    ownedRecord(storage, durable, readIdentity);
+    await cleanup(durable);
+    await storage.commit({ action: "finish-delete", durable, operationId });
+    releaseBoundary(record);
+    nativeDeletionEvidence.delete(id);
+  })().finally(() => {
+    if (activeDeletions.get(id) === work) activeDeletions.delete(id);
+  });
+  activeDeletions.set(id, work);
+  return work;
+}
+
+/**
+ * Bind native notifications and native KV updates once per local host manager. Parent scopes
+ * are registered only while mounted. Registry updates perform live cleanup in every window;
+ * recovery RPCs run only on parent-open, identity or reconnect events, never by polling.
+ */
+export function bindDeletionManager(manager, { storage, readIdentity, cleanup, subscribe }) {
+  let binding = deletionManagers.get(manager);
+  if (binding != null) return binding;
+  /** Mounted scopes own their layout callbacks; disposal removes all native subscriptions. */
+  const cleanups = new Set();
+  /** Record notifications that raced an in-flight delete response within this renderer. */
+  const evidence = new Set();
+  /** Run matching live cleanup callbacks even after another window removed the registry row. */
+  const clean = async (durable) => {
+    for (const callback of cleanups) await callback(durable);
+  };
+  /** Continue only explicit saved intent for the current account; no ordinary chats are scanned. */
+  const recover = () => {
+    if (manager.disposed) return;
+    const identity = readIdentity();
+    for (const record of Object.values(readRegistry(storage).records)) {
+      if (!record.deletion || record.durable.accountId !== identity.accountId ||
+          record.durable.userId !== identity.userId) continue;
+      permanentlyDelete({
+        storage, durable: record.durable, manager, readIdentity, cleanup: clean,
+        nativeEvidence: evidence.has(record.durable.conversationId),
+      }).catch((error) => console.error(JSON.stringify({
+        component: "codex-side-chat-patch", operation: "recover-delete", error: errorJSON(error),
+      })));
+    }
+  };
+  let previous = readRegistry(storage);
+  /** Close pending/deleted tabs in every bound window without starting retry loops on KV updates. */
+  const changed = () => {
+    const current = readRegistry(storage);
+    const identity = readIdentity();
+    for (const [id, record] of Object.entries(previous.records)) {
+      if ((current.records[id]?.deletion?.phase === "native-deleted" || current.records[id] == null) &&
+          record.durable.accountId === identity.accountId && record.durable.userId === identity.userId) {
+        clean(record.durable).catch((error) => console.error(errorJSON(error)));
+      }
+    }
+    previous = current;
+  };
+  const stopRegistry = subscribe(changed);
+  const stopDeleted = manager.addThreadDeletedListener((id) => {
+    const record = readRegistry(storage).records[id];
+    if (record == null) return;
+    const identity = readIdentity();
+    if (record.durable.accountId !== identity.accountId || record.durable.userId !== identity.userId) return;
+    evidence.add(id);
+    nativeDeletionEvidence.add(id);
+    if (record.deletion != null) {
+      storage.commit({
+        action: "native-deleted", durable: record.durable,
+        operationId: record.deletion.operationId,
+      }).catch((error) => console.error(errorJSON(error)));
+    }
+    permanentlyDelete({
+      storage, durable: record.durable, manager, readIdentity, cleanup: clean, nativeEvidence: true,
+    }).then(() => evidence.delete(id)).catch((error) => console.error(errorJSON(error)));
+  });
+  binding = {
+    recover, cleanup: clean,
+    /** Register a mounted parent and immediately continue its previously confirmed deletions. */
+    register(callback = cleanup) {
+      cleanups.add(callback);
+      recover();
+      return () => cleanups.delete(callback);
+    },
+    /** Release subscriptions with the native manager so retired windows retain no scope callbacks. */
+    dispose() {
+      stopRegistry(); stopDeleted(); cleanups.clear(); evidence.clear();
+      deletionManagers.delete(manager);
+    },
+  };
+  manager.cleanup.push(() => binding.dispose());
+  deletionManagers.set(manager, binding);
+  return binding;
+}
+
+/** Reuse an already-bound manager on native connection recovery; unmounted hosts do no new work. */
+export function recoverDeletions(manager) {
+  deletionManagers.get(manager)?.recover();
+}
+
+/** Reject added user turns, steering and restores while the durable deletion claim is present. */
+export function guardSideRequest(storage, hostId, method, params) {
+  if (hostId !== "local" ||
+      !["turn/start", "turn/steer", "thread/resume", "thread/inject_items",
+        "thread/queuedMessages/add", "thread-follower-start-turn",
+        "thread-follower-steer-turn"].includes(method)) return;
+  const id = params?.threadId ?? params?.conversationId;
+  if (readRegistry(storage).records[id]?.deletion ||
+      storage.readValue("codex-native-side-chat-deleted-ids-v1")?.[id]) {
+    throw Error("The side chat is being permanently deleted");
+  }
 }
