@@ -1,9 +1,9 @@
 /**
- * Replacement for zt in build 21828 only; native symbol bindings come from the original asset.
+ * Replacement for Ut in build 22391 only; native symbol bindings come from the original asset.
  * Cloud/remote paths keep their original temporary behavior. Local forks use native persistence.
  * assertRequestCurrent prevents an identity-retired or cancelled creation becoming an orphan.
  */
-async function zt({
+async function Ut({
   scope: e,
   sourceConversationId: t,
   threadSource: n,
@@ -16,13 +16,13 @@ async function zt({
   /** Native cleaned display text, or the localized placeholder, allocated atomically with the fork. */
   naming,
 }) {
-  if (f(i)) {
-    let r = await Ct({
+  if (N(i)) {
+    let r = await Et({
       scope: e, sourceConversationId: t, threadSource: n,
-      collaborationMode: a, developerInstructions: bt, parentNavigationPath: s,
+      collaborationMode: a, developerInstructions: xt, parentNavigationPath: s,
     });
     if (r == null) return null;
-    if (r.status !== `created`) throw R(e, r);
+    if (r.status !== `created`) throw I(e, r);
     return { conversationId: r.conversationId, hostId: i, creation: r };
   }
   const persistent = i === `local`;
@@ -38,11 +38,11 @@ async function zt({
   };
   current();
   let [c, { instructions: l }] = await Promise.all([
-    Ae(e, t),
-    Le({
+    Re(e, t),
+    Ue({
       cwd: r, hostId: i,
-      ...(Ze(e, i, !0) ? { hostedAutomationsEnabled: !0 } : {}),
-      includeProseDetailLevelInstructions: e.get(rt),
+      ...(qe(e, i, !0) ? { hostedAutomationsEnabled: !0 } : {}),
+      includeProseDetailLevelInstructions: e.get(he),
       instructionOverrides: o, threadId: t,
     }),
   ]);
@@ -50,12 +50,12 @@ async function zt({
   const params = {
     sourceConversationId: t, threadSource: n, cwd: r, workspaceRoots: c,
     collaborationMode: a, ephemeral: !persistent, addForkedSyntheticItem: !1,
-    developerInstructions: `${l}\n\n${bt}
+    developerInstructions: `${l}\n\n${xt}
 
 Scheduled updates can’t run in side chats. If the user asks for a recurring monitor here, explain that they should open the main chat or start a new chat, then set up the schedule there. Do not claim scheduled updates were set up in this side chat. Scheduling for another chat or a standalone task remains available.`,
     sideConversation: !0, sideConversationParentNavigationPath: s,
   };
-  const u = await __scp.loggedRpc(`forkConversation`, params, () => ue(e, i, params));
+  const u = await __scp.loggedRpc(`forkConversation`, params, () => Ae(e, i, params));
   try {
     current();
     if (persistent && u.synchronization.status === `failed`) {
@@ -64,7 +64,7 @@ Scheduled updates can’t run in side chats. If the user asks for a recurring mo
     let durable;
     if (persistent) {
       const inheritedTurnIds = await __scp.inheritedBoundary(
-        (method, params) => H(e, i).sendRequest(method, params), u.conversationId, current,
+        (method, params) => L(e, i).sendRequest(method, params), u.conversationId, current,
       );
       current();
       durable = {
@@ -91,7 +91,7 @@ Scheduled updates can’t run in side chats. If the user asks for a recurring mo
         options: { useAppServerPins: !1, source: `side-chat-cancelled` },
       };
       await __scp.loggedRpc(`archiveConversation`, archiveParams, () =>
-        H(e, i).archiveConversation(u.conversationId, archiveParams.options));
+        L(e, i).archiveConversation(u.conversationId, archiveParams.options));
       await __scp.forgetCancelled(__sideStorage(), u.conversationId);
     }
     throw error;

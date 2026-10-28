@@ -167,9 +167,9 @@ test("actual summary hook reads the native KV family with a key and preserves re
   let account = "account-one";
   const context = {
     __scp: persistence, __sideRegistryAtom: () => registryFamily,
-    __sideAccount: accountSignal, __sideUser: userSignal, Vo: { tabs$: tabSignal },
-    su: responseFamily,
-    mO: (tabs, progress) => tabs.map(row => ({
+    __sideAccount: accountSignal, __sideUser: userSignal, Ju: { tabs$: tabSignal },
+    za: responseFamily,
+    CO: (tabs, progress) => tabs.map(row => ({
       ...row, isResponseInProgress: progress(row.conversationId),
     })),
   };
@@ -299,14 +299,14 @@ function creationFixture(hostId = "local") {
   const context = {
     __scp: persistence, __sideStorage: () => storage,
     __sideAccount: "account", __sideUser: "user",
-    f: () => false, Ae: async () => ["/empty-workspace"],
-    Le: async () => ({ instructions: "Native instructions" }),
-    Ze: () => false, rt: "detail", bt: "Untrusted parent is reference only",
-    ue: async (_, host, params) => {
+    N: () => false, Re: async () => ["/empty-workspace"],
+    Ue: async () => ({ instructions: "Native instructions" }),
+    qe: () => false, he: "detail", xt: "Untrusted parent is reference only",
+    Ae: async (_, host, params) => {
       requests.push({ method: "fork", host, params });
       return { conversationId: "side-one", synchronization: { status: "complete" } };
     },
-    H: () => ({
+    L: () => ({
       sendRequest: async (method, params) => {
         requests.push({ method, params });
         return { data: [{ id: "parent-turn" }], nextCursor: null };
@@ -318,7 +318,7 @@ function creationFixture(hostId = "local") {
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/local-create.js", import.meta.url), "utf8"), context);
   return {
-    invoke: () => context.zt({
+    invoke: () => context.Ut({
       scope: { get: (atom) => atom === "account" ? account : atom === "user" ? "user-one" : false },
       sourceConversationId: "parent-one", cwd: "/empty-workspace", hostId,
       parentNavigationPath: "/thread/parent-one", collaborationMode: undefined,
@@ -346,7 +346,7 @@ test("actual native creation hook creates a durable local fork with inherited-ID
 test("cancelled and identity-retired native creations are archived without recoverable orphan rows", async () => {
   for (const retire of ["cancel", "changeAccount"]) {
     const fixture = creationFixture();
-    fixture.context.ue = async () => {
+    fixture.context.Ae = async () => {
       fixture[retire]();
       return { conversationId: "side-one", synchronization: { status: "complete" } };
     };
@@ -381,16 +381,16 @@ function restorationFixture(changeAt) {
   const storage = storageFixture();
   persistence.remember(storage, durable(), []);
   const context = {
-    __scp: persistence, r: () => false, f: () => true,
+    __scp: persistence, i: () => false, c: () => true,
     __sideStorage: () => storage, __sideAccount: "account", __sideUser: "user",
     U: (_, descriptor) => persistence.assertIdentity(descriptor, account, "user-one"),
-    d: async () => {
+    m: async () => {
       if (changeAt === "root-error") throw Error("Native workspace access failed");
       if (changeAt === "roots") account = "account-two";
       if (changeAt === "delete-roots") persistence.forgetCancelled(storage, "side-one");
       return ["/empty-workspace"];
     },
-    S: (_, host) => ({
+    b: (_, host) => ({
       resumeConversation: async (params, options) => {
         requests.push({ host, params, options });
         if (changeAt === "resume") account = "account-two";
@@ -398,7 +398,7 @@ function restorationFixture(changeAt) {
         return { status: "ready" };
       },
     }),
-    w: Error, i: (error) => error.message, Error,
+    d: Error, r: (error) => error.message, Error,
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/restore.js", import.meta.url), "utf8"), context);

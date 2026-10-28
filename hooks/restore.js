@@ -16,21 +16,21 @@ async function H(e, t, n, a) {
       threadAccess: t.teamId == null ? void 0 : `shared`,
       model: null,
       reasoningEffort: null,
-      workspaceRoots: r(o) ? [] : await d(e, n, { allowProjectSourceRoots: !0 }),
+      workspaceRoots: i(o) ? [] : await m(e, n, { allowProjectSourceRoots: !0 }),
       preserveServerConfiguration: !0,
       sideConversation: { parentNavigationPath: a },
     };
     current();
     const result = await __scp.loggedRpc(`resumeConversation`, params, () =>
-      S(e, o).resumeConversation(params, { readResumeInputs: f(e, o) }));
+      b(e, o).resumeConversation(params, { readResumeInputs: c(e, o) }));
     current();
-    if (result.status !== `ready`) throw new w(result);
+    if (result.status !== `ready`) throw new d(result);
     return { conversationId: t.conversationId, hostId: o, durable: t };
   } catch (error) {
     current();
     return {
       conversationId: t.conversationId, hostId: o, durable: t,
-      setupError: Error(i(error)),
+      setupError: Error(r(error)),
     };
   }
 }

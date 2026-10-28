@@ -5,13 +5,13 @@ function oe({ sideChats, onOpen, scope }) {
   React.useEffect(() => __sideRegisterDeleteScope(scope), [scope]);
   if (sideChats.length === 0 && selected == null) return null;
   return Q.jsxs(Q.Fragment, { children: [
-    Q.jsx(j.Section, {
+    Q.jsx(M.Section, {
       sectionKey: `side-chats`,
-      title: Q.jsx(f, {
+      title: Q.jsx(o, {
         id: `codex.localConversation.sideChats.title`, defaultMessage: `Side chats`,
         description: `Title for the side chats section in the chat summary side panel`,
       }),
-      titleSuffix: Q.jsx(j.SectionCount, { count: sideChats.length }),
+      titleSuffix: Q.jsx(M.SectionCount, { count: sideChats.length }),
       children: Q.jsx(se, { sideChats, onOpen, onDelete: setSelected }),
     }),
     selected == null ? null : Q.jsx(__codexSideDeleteDialog, {
@@ -22,20 +22,20 @@ function oe({ sideChats, onOpen, scope }) {
 
 /** Separate sibling buttons keep opening a chat independent of its destructive action menu. */
 function se({ sideChats, onOpen, onDelete }) {
-  return Q.jsx(j.List, {
+  return Q.jsx(M.List, {
     items: sideChats, getKey: ce,
     children: (row) => Q.jsxs(`div`, {
       className: `flex min-w-0 items-center gap-1`,
       children: [
-        Q.jsxs(j.ItemButton, {
+        Q.jsxs(M.ItemButton, {
           className: `min-w-0 flex-1`, disabled: row.deletion != null,
           "aria-busy": row.deletion != null || row.isResponseInProgress,
           onClick: () => { if (!row.deletion) onOpen(row); },
           children: [
-            Q.jsx(j.ItemLeading, {
-              children: row.deletion || row.isResponseInProgress ? Q.jsx(d, {}) : Q.jsx(g, {}),
+            Q.jsx(M.ItemLeading, {
+              children: row.deletion || row.isResponseInProgress ? Q.jsx(s, {}) : Q.jsx(C, {}),
             }),
-            Q.jsx(j.ItemLabel, {
+            Q.jsx(M.ItemLabel, {
               children: row.deletion ? `${row.title} · 删除中` : row.title,
             }),
           ],

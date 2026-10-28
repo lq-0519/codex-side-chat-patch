@@ -437,12 +437,11 @@ test("actual native cleanup bypasses close callbacks and undo while preserving p
     };
   }
   const context = {
-    dG: target => controllers.get(target),
-    FD: () => { throw Error("signal initialization cannot be used as relation storage"); },
+    _K: target => controllers.get(target),
     /** Match the native relation-removal helper's scope/parent/child argument contract. */
-    JEn: (targetScope, parent, child) =>
+    WEn: (targetScope, parent, child) =>
       targetScope.set(relationFamily, parent, values => values.filter(id => id !== child)),
-    OOi: (_, parent, ids) => { assert.equal(parent, "parent"); layoutIds.push(...ids); },
+    ITe: (_, parent, ids) => { assert.equal(parent, "parent"); layoutIds.push(...ids); },
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/delete-adapter.js", import.meta.url), "utf8")
@@ -655,9 +654,9 @@ test("native title hook maps entity keys to turn IDs and follows right/bottom ta
     };
     const context = {
       __scp: runtime, codexSidePatchStorage: () => f.storage,
-      q_: "account", Av: "user", Aw: "canonical", Nw: "turn-id", r2n: "native-count",
-      dG: target => controllers.get(target),
-      bv: (key, _, callback) => {
+      F_: "account", hv: "user", IT: "canonical", zT: "turn-id", SQn: "native-count",
+      _K: target => controllers.get(target),
+      iv: (key, _, callback) => {
         assert.equal(key, runtime.REGISTRY_KEY);
         subscriptions.add(callback); return () => subscriptions.delete(callback);
       },
