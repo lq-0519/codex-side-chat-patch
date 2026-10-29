@@ -28,6 +28,9 @@ ASSETS = {
         "e0f714f00012b2641d2da749bcf457f1b74f1e7ebfae0c28c15e9b0f18462409",
     "composer-content-a67d714976c0.js":
         "36e485cd8e6c2bf90537492647afa49afbe0f8b26de9b14268fbe8abb88fa25f",
+    # The existing menu and shortcut share this atom with the native creation admission check.
+    "availability-507290cf747b.js":
+        "2423f4e080d8cebc127f7268ec09d657352a2e4fd7bbe06821b65c95ad42efdb",
 }
 # MAIN_ASSETS independently pins native main-process storage coordination for deletion.
 MAIN_ASSETS = {
@@ -48,10 +51,16 @@ SIDE_IMPORT = (
     'codexSidePatchRegistryAtom as __sideRegistryAtom}'
     'from"./app-initial-b539f0af92f3.js";\n'
 )
-# UI_ASSETS pins unchanged native exports and Portal behavior used by menu/dialog imports.
+# UI_ASSETS pins unchanged UI exports, Portal behavior and existing side-chat entry/shortcut wiring.
 UI_ASSETS = {
     "app-shared-2864d2ff2296.js":
         "f15485482923dd016959091f70166c9f0146d6a4f9d5474cd0b8be6c22603dae",
+    # The launcher passes the shared availability atom through to its side-chat action.
+    "thread-panel-launcher-artifacts-e43ff65356bc.js":
+        "9c5cecd6a4f96775de000e7e4805e502d39063b3fa8f088d57c5b989008bd935",
+    # The original shortcut is enabled only while that launcher contains the side-chat action.
+    "thread-side-panel-new-tab-2a896983c7bf.js":
+        "e802b8bf3a94c29f10521b979ed689fdd7396295d5e8706459b2d10c3269b406",
 }
 
 
@@ -82,6 +91,30 @@ def build_replacements(archive):
         if sha256_bytes(original) != digest:
             raise ValueError("Unknown original asset: " + name)
         source[name] = original.decode("utf-8")
+
+    name = "availability-507290cf747b.js"
+    # Kw (exported as VJn) resolves the source conversation's actual manager host. Check it
+    # reactively rather than trusting the scope's optional hostId or the globally selected host.
+    # Only a local-thread on the local manager gains the ChatGPT-mode exception; cloud/remote
+    # paths retain their original gate, and the native surface, account and archive checks remain.
+    text = replace_once(
+        source[name],
+        "O1n as o,Par as s,vGt as c",
+        "O1n as o,Par as s,VJn as __sideHost,vGt as c,zJn as __sideInitHost",
+    )
+    # Initialize the exported host atom through its original idempotent module initializer.
+    # Availability may be imported before the thread/launcher modules initialize that binding.
+    text = replace_once(text, "a(),c(),d=n(l,", "a(),c(),__sideInitHost(),d=n(l,")
+    source[name] = (
+        "/** Reuse native side-chat menus and shortcuts for local threads in ChatGPT mode. */\n"
+        + replace_once(
+            text,
+            "({get:e})=>e(u)&&(!e(r)||e(s,`2402779155`))",
+            "({get:e,scope:t})=>e(u)&&(!e(r)||e(s,`2402779155`)||"
+            "(t.value.routeKind===`local-thread`&&"
+            "e(__sideHost,t.value.conversationId)===`local`))",
+        )
+    )
 
     name = "local-conversation-side-chat-9dccfe3d831a.js"
     text = replace_between(
