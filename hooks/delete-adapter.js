@@ -1,4 +1,4 @@
-/** Native symbols below are valid only in the hash-pinned app-initial build 22391. */
+/** Native symbols below are valid only in the hash-pinned app-initial build 22530. */
 var __codexSideDeleteBindings = new WeakMap();
 /** Open tabs retain cleanup registration even while the parent summary section is collapsed. */
 var __codexSideDeleteTabScopes = new WeakMap();

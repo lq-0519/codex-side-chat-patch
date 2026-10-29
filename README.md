@@ -4,11 +4,11 @@
 
 完整 Git 仓库位于 `/Users/bytedance/projects/codex-side-chat-patch`，可以直接用 GoLand 打开这个目录。
 
-基础实现位于 `feat/persistent-side-chats` 分支，性能优化位于 `feat/minimal-side-chat-overhead`，永久删除位于 `feat/permanent-side-chat-delete`。当前运行的 `/Applications/ChatGPT.app` 已安装针对 build 22391 的严格适配版本；固定证书签名、完整性校验与启动确认通过，功能验收由用户自行完成。完整原厂应用已保留，支持回滚。
+基础实现位于 `feat/persistent-side-chats` 分支，性能优化位于 `feat/minimal-side-chat-overhead`，永久删除位于 `feat/permanent-side-chat-delete`。当前适配版本为 build 22530，固定证书签名的完整副本已生成并通过校验。当前运行的 `/Applications/ChatGPT.app` 是更新后的原厂应用；安装及正常重启等待用户确认可中断使用，功能验收由用户自行完成。
 
-此次通过固定版本适配、签名副本验证和原子安装完成升级。后续补丁更新时，仍须先为新 build 完成严格适配，再退出应用并重新安装。仅点击原应用图标不会执行补丁升级。
+补丁更新须先为新 build 完成严格适配和签名副本校验，再退出应用、原子安装并正常启动。仅点击原应用图标不会执行补丁升级。
 
-当前在用应用已安装本机本地会话在 ChatGPT 模式下新建侧边聊天的补丁，并以正常模式重新启动。沿用现有快捷键和入口，不增加按钮；签名、安装记录和启动状态校验通过，功能验收由用户自行完成。
+签名副本包含本机本地会话在 ChatGPT 模式下新建侧边聊天的支持，沿用现有快捷键和入口，不增加按钮。安装本次副本后，持久化、恢复、命名和永久删除功能一并生效。
 
 ## 官方授权与账号风险
 
@@ -32,7 +32,7 @@ Codex 的本地引擎已经支持持久线程，但原侧边创建走临时模�
 
 `codex_side_patch.py` 是补丁管理入口。`stage` 复制完整原应用，在副本的 `app.asar` 中替换七个渲染端资源和一个主进程资源，增加两份运行时模块，更新文件/分块、ASAR 头、plist 和框架中的元数据摘要后重签；`apply` 将已验证的完整副本安装到原应用路径，同时保留完整原包。框架适配保留启用标志、版本和 ASAR 完整性校验。保存、恢复及删除逻辑由应用内部执行。另有独立双击启动入口，在打开原应用前检查并重新应用补丁。
 
-当前在用应用已经使用固定本地证书重签。原厂备份路径记录在 `~/Library/Application Support/CodexSideChatPatch/installation.json` 的 `backup` 字段；当前完整原包位于 `/Applications/.codex-side-patch-_i20gydn/ChatGPT.app`。补丁运行时不需要常驻 Python 进程。
+待安装的完整签名副本位于 `~/Library/Application Support/CodexSideChatPatch/stages/build-22530-strict-20261029`。安装器会保存当前 build 的完整原厂应用，并把路径写入 `~/Library/Application Support/CodexSideChatPatch/installation.json` 的 `backup` 字段；软件更新后不可用旧记录覆盖当前新版本。补丁运行时不需要常驻 Python 进程。
 
 ## 支持范围
 
@@ -40,9 +40,9 @@ Codex 的本地引擎已经支持持久线程，但原侧边创建走临时模�
 | --- | --- |
 | 应用路径（默认） | `/Applications/ChatGPT.app` |
 | Bundle ID | `com.openai.codex` |
-| 应用版本 / build | `26.1023.50603` / `22391` |
+| 应用版本 / build | `26.1023.51421` / `22530` |
 | 内置引擎 | `codex-cli 0.165.0-alpha.1.2` |
-| 原始 ASAR SHA-256 | `94a7fac7fdf222261170204df0406249822431cf4db3627d5524b6ba033ce3e6` |
+| 原始 ASAR SHA-256 | `1c8ef1bef66e5fc416ae66eff8e6529972aa3601e27a1c7b5f61d6a292b957d3` |
 
 工具核对全部八个目标资源的完整哈希及唯一锚点，并固定菜单与确认框使用的共享原生界面资源、现有侧边入口和快捷键模块的哈希。手动命令默认严格匹配上述版本和完整 ASAR。自动启动使用兼容尝试：更新包只有原厂完整签名、ASAR 完整性、全部目标资源、内置引擎版本及已适配的 ARM64 框架摘要结构仍匹配才会应用；未知框架路径或结构需要单独适配。
 
@@ -76,7 +76,7 @@ security find-identity -v -p codesigning
 
 ```sh
 CODEX_SIDE_SIGNER="填入已有固定证书的40位SHA1"
-CODEX_SIDE_STAGE="$HOME/Library/Application Support/CodexSideChatPatch/stages/build-22391-strict"
+CODEX_SIDE_STAGE="$HOME/Library/Application Support/CodexSideChatPatch/stages/build-22530-strict"
 python3 -B codex_side_patch.py stage --identity "$CODEX_SIDE_SIGNER" --output "$CODEX_SIDE_STAGE"
 python3 -B codex_side_patch.py verify "$CODEX_SIDE_STAGE"
 ```
@@ -192,7 +192,7 @@ python3 -B tests/native_protocol_probe.py \
 
 该检查验证：持久分叉、无正文的继承边界分页、重启后原 ID、多轮历史及继续追问上下文、后续父轮次隔离、临时线程失效和旧临时线程迁移失败。完整 RPC 输入、输出、错误写入外部 JSON 日志，响应夹具与结果也写入指定目录。桌面应用不会被退出或重启。
 
-当前自动化检查为 32 个 Node 用例和 32 个 Python 用例，另有上述真实引擎协议验证。运行时检查覆盖原生 KV 参数、缓存与快照、原生菜单到确认框的焦点交接、删除确认和重试、删除与恢复并发、跨窗口通知、落盘失败，以及父会话和同级侧边保护。命名检查覆盖并发占位/内容重名、隐藏和历史记录、首轮实体到轮次 ID 映射、账户隔离、重启、旧布局覆盖、无文字发送、重复成功回调及面板移动和订阅释放。安装检查使用微型 ASAR、完整目录复制及原子交换，覆盖缓存复用、更新匹配/拒绝、旧补丁升级、并发、运行中聚焦和故障恢复；签名服务、桌面启动和通知使用夹具。真实原包集成检查直接执行生成后的清理 hook 与原生关联、布局函数，验证错误调用对照失败、目标清理及重复执行；命名集成检查执行原包生成的创建/恢复函数及首发名称入口，确认原生文字清理函数未改动。build 22391 原包生成的 9 份变更资源通过哈希、唯一锚点与语法检查。已安装副本通过严格签名与两层 Electron 元数据校验，实现指纹与源码一致，安装事务已提交，应用已重新启动；本次功能由用户自行验收。
+当前 32 个 Node 用例和 32 个 Python 用例全部通过，覆盖持久化、命名、删除并发及安装事务。build 22530 的原厂资源已与上一版逐处对比，补丁依赖的原生符号和唯一锚点均匹配；内置 CLI、主进程资源保持相同，框架字节差异仅在完整性摘要和签名区域。生成后的能力判断及现有快捷键通过 48 种组合验证，保留原生页面、账户和归档限制。10 份新增或替换资源通过哈希和语法检查，49 处注入导入与实际模块导出匹配；完整签名副本通过严格签名与两层 Electron 元数据校验，实现指纹与源码一致。安装和桌面验收待完成。
 
 用户可新建本地侧边聊天、关闭后从主会话 Side chats 重开，再正常退出并重启后继续追问。原侧边入口、标签恢复及重签后的重新登录、钥匙串和实际系统权限仍需完整验收。工具、图片、附件、超长历史、压缩和生成中强制退出尚未完成桌面验证。
 

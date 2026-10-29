@@ -1,5 +1,5 @@
 /**
- * Replacement for Ut in build 22391 only; native symbol bindings come from the original asset.
+ * Replacement for Ut in build 22530 only; native symbol bindings come from the original asset.
  * Cloud/remote paths keep their original temporary behavior. Local forks use native persistence.
  * assertRequestCurrent prevents an identity-retired or cancelled creation becoming an orphan.
  */

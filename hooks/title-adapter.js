@@ -1,4 +1,4 @@
-/** Native signal/controller names below belong exclusively to the hash-pinned build 22391. */
+/** Native signal/controller names below belong exclusively to the hash-pinned build 22530. */
 
 /**
  * Translate canonical entity keys through the native turn-ID selector before comparing the

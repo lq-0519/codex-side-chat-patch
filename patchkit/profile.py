@@ -7,30 +7,30 @@ from .archive import read_file, sha256_bytes
 
 # PROFILE pins the app, engine and complete original archive inspected for this adapter.
 PROFILE = {
-    "id": "codex-22391-native-side-v1",
+    "id": "codex-22530-native-side-v1",
     "bundle_id": "com.openai.codex",
-    "version": "26.1023.50603",
-    "build": "22391",
+    "version": "26.1023.51421",
+    "build": "22530",
     "cli_version": "0.165.0-alpha.1.2",
-    "asar_sha256": "94a7fac7fdf222261170204df0406249822431cf4db3627d5524b6ba033ce3e6",
+    "asar_sha256": "1c8ef1bef66e5fc416ae66eff8e6529972aa3601e27a1c7b5f61d6a292b957d3",
 }
 # ASSETS are the exact target bytes. Matching the version alone is never sufficient.
 ASSETS = {
-    "local-conversation-side-chat-9dccfe3d831a.js":
-        "5baf0dfdb17b74cb59cb759f90198a65f5509de2c72c9951c6ccb345995c0796",
-    "app-initial-b539f0af92f3.js":
-        "96d8d335e8bd4612da5f0f370c6fc2bdee5fccdbbc269d6d6db7ae899e2aa81f",
-    "persistent-92b2f845e583.js":
-        "832c675c89f7fb20be86dfa4dfc7362182043deb135b2bdd4b857079b0b768da",
-    "local-conversation-thread-de0d137b0115.js":
-        "c7a3d8edbbb1a798158fd8e5b9a1a90bdaffeb254bee13079f4464fe400f7282",
-    "local-conversation-side-chats-1ec346afe66e.js":
-        "e0f714f00012b2641d2da749bcf457f1b74f1e7ebfae0c28c15e9b0f18462409",
-    "composer-content-a67d714976c0.js":
-        "36e485cd8e6c2bf90537492647afa49afbe0f8b26de9b14268fbe8abb88fa25f",
+    "local-conversation-side-chat-1377563ccc56.js":
+        "5b1a9ab92c7df751cb6730bd7b2e534743dea916d3efe38c7e491caaae862f69",
+    "app-initial-bc8256c3cccb.js":
+        "296e75c2132f346f3fec495607aa8578c1a0219b90b9bf96673ae7aa5a45e352",
+    "persistent-f61aa2a2950b.js":
+        "5d52f24ed15d503c85243fbd7778926e58fcbd83c4728b587d13e448fe289051",
+    "local-conversation-thread-632461ac15f4.js":
+        "100bfbd3136e942ffd98bf0e3380cd43dab7989bfb0f3e0dfcb804ce78c2adf0",
+    "local-conversation-side-chats-457b29b7d06b.js":
+        "027fdde000850690f3dbe3f73c6124608abb8556716b8763bcf80ff49e3e2edb",
+    "composer-content-df5c8079da65.js":
+        "b55eda87267700c843a0bb5ac1adae1df2481faa726409860e12fa2bcd13ad2f",
     # The existing menu and shortcut share this atom with the native creation admission check.
-    "availability-507290cf747b.js":
-        "2423f4e080d8cebc127f7268ec09d657352a2e4fd7bbe06821b65c95ad42efdb",
+    "availability-af5184da6d5b.js":
+        "192a24db530c1b83c214af064e3bb8d37d4142ff441ab9d700e0d95c92398456",
 }
 # MAIN_ASSETS independently pins native main-process storage coordination for deletion.
 MAIN_ASSETS = {
@@ -49,18 +49,18 @@ SIDE_IMPORT = (
     'codexSidePatchStorage as __sideStorage,'
     'codexSidePatchRegisterDeletionTab as __sideRegisterDeleteTab,'
     'codexSidePatchRegistryAtom as __sideRegistryAtom}'
-    'from"./app-initial-b539f0af92f3.js";\n'
+    'from"./app-initial-bc8256c3cccb.js";\n'
 )
 # UI_ASSETS pins unchanged UI exports, Portal behavior and existing side-chat entry/shortcut wiring.
 UI_ASSETS = {
-    "app-shared-2864d2ff2296.js":
-        "f15485482923dd016959091f70166c9f0146d6a4f9d5474cd0b8be6c22603dae",
+    "app-shared-e9f258fd3588.js":
+        "fb96f4db77d3668c1dd5a6422fd1681cb3b95b453766b1b12aa647985536f77c",
     # The launcher passes the shared availability atom through to its side-chat action.
-    "thread-panel-launcher-artifacts-e43ff65356bc.js":
-        "9c5cecd6a4f96775de000e7e4805e502d39063b3fa8f088d57c5b989008bd935",
+    "thread-panel-launcher-artifacts-8049bdb70d19.js":
+        "37a9daf55e1615598605f2ec1ea87e7a23783905753557785b6808dc9dc73861",
     # The original shortcut is enabled only while that launcher contains the side-chat action.
-    "thread-side-panel-new-tab-2a896983c7bf.js":
-        "e802b8bf3a94c29f10521b979ed689fdd7396295d5e8706459b2d10c3269b406",
+    "thread-side-panel-new-tab-e676c476e9e3.js":
+        "136c05d6600f25e4bf28625ccbe33e73e0309897aa2938eacb0ad90f8416f4c8",
 }
 
 
@@ -92,7 +92,7 @@ def build_replacements(archive):
             raise ValueError("Unknown original asset: " + name)
         source[name] = original.decode("utf-8")
 
-    name = "availability-507290cf747b.js"
+    name = "availability-af5184da6d5b.js"
     # Kw (exported as VJn) resolves the source conversation's actual manager host. Check it
     # reactively rather than trusting the scope's optional hostId or the globally selected host.
     # Only a local-thread on the local manager gains the ChatGPT-mode exception; cloud/remote
@@ -116,7 +116,7 @@ def build_replacements(archive):
         )
     )
 
-    name = "local-conversation-side-chat-9dccfe3d831a.js"
+    name = "local-conversation-side-chat-1377563ccc56.js"
     text = replace_between(
         source[name], "async function Ut(", "function Wt(",
         (ROOT / "hooks/local-create.js").read_text(),
@@ -199,7 +199,7 @@ def build_replacements(archive):
     )
     source[name] = IMPORT + SIDE_IMPORT + text
 
-    name = "composer-content-a67d714976c0.js"
+    name = "composer-content-df5c8079da65.js"
     text = source[name]
     # Only the two side-composer naming guards change; the shared canonical counter stays intact.
     for conversation in ["r.localConversationId", "c.localConversationId"]:
@@ -219,16 +219,16 @@ def build_replacements(archive):
         'import{codexSidePatchStorage as __sideStorage,'
         'codexSidePatchIsFirstTurn as __sideIsFirstTurn,'
         'codexSidePatchNameFirstTurn as __sideNameFirstTurn}'
-        'from"./app-initial-b539f0af92f3.js";\n'
+        'from"./app-initial-bc8256c3cccb.js";\n'
     ) + text
 
-    name = "persistent-92b2f845e583.js"
+    name = "persistent-f61aa2a2950b.js"
     source[name] = IMPORT + SIDE_IMPORT + replace_between(
         source[name], "async function H(", "function U(",
         (ROOT / "hooks/restore.js").read_text(),
     )
 
-    name = "app-initial-b539f0af92f3.js"
+    name = "app-initial-bc8256c3cccb.js"
     text = source[name]
     # iE is the frontend presentation merge; native server history and rE remain unmodified.
     text = replace_once(
@@ -323,7 +323,7 @@ export function codexSidePatchRegistryAtom(){
     text += (ROOT / "hooks/title-adapter.js").read_text()
     source[name] = IMPORT + text
 
-    name = "local-conversation-thread-de0d137b0115.js"
+    name = "local-conversation-thread-632461ac15f4.js"
     text = source[name]
     # Reuse the original summary section instead of creating an independent recovery UI.
     text = replace_once(
@@ -359,7 +359,7 @@ export function codexSidePatchRegistryAtom(){
     )
     source[name] = IMPORT + SIDE_IMPORT + text
 
-    name = "local-conversation-side-chats-1ec346afe66e.js"
+    name = "local-conversation-side-chats-457b29b7d06b.js"
     text = replace_between(
         source[name], "function oe(", "function ce(",
         (ROOT / "hooks/side-list.js").read_text(),
@@ -372,10 +372,10 @@ export function codexSidePatchRegistryAtom(){
         'dct as __sideInitContainer,YN as __sideDialog,VN as __sideDialogForm,'
         'WN as __sideDialogSection,UN as __sideDialogHeader,QN as __sideDialogTitle,'
         'ZN as __sideDialogDescription,HN as __sideDialogActions,W6 as __sideButton,'
-        'Jit as __sideToasts}from"./app-shared-2864d2ff2296.js";\n'
+        'Jit as __sideToasts}from"./app-shared-e9f258fd3588.js";\n'
         'import{codexSidePatchDelete as __sideDelete,'
         'codexSidePatchRegisterDeletionScope as __sideRegisterDeleteScope}'
-        'from"./app-initial-b539f0af92f3.js";\n'
+        'from"./app-initial-bc8256c3cccb.js";\n'
     ) + text
     source[name] = text
     result = {"webview/assets/" + name: value.encode() for name, value in source.items()}
