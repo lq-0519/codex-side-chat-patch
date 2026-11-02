@@ -140,6 +140,7 @@ class AutomaticStartup(unittest.TestCase):
             return subprocess.CompletedProcess(arguments, 0, plistlib.dumps({
                 "test.entitlement": True, "com.apple.security.cs.allow-jit": True,
                 "com.apple.developer.aps-environment": "production",
+                "com.apple.developer.associated-domains": ["applinks:chatgpt.com"],
                 "com.apple.developer.usernotifications.communication": True,
                 "com.apple.developer.team-identifier": "2DC432GLL2",
                 "keychain-access-groups": ["2DC432GLL2.com.openai.codex"],

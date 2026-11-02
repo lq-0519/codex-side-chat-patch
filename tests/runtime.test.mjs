@@ -163,15 +163,11 @@ test("actual summary hook reads the native KV family with a key and preserves re
   persistence.remember(storage, durable("closed-side"), []);
   persistence.hide(storage, "closed-side");
   const registryFamily = { kind: "signal-family" };
-  const tabSignal = {}, responseFamily = {}, accountSignal = {}, userSignal = {};
+  const accountSignal = {}, userSignal = {};
   let account = "account-one";
   const context = {
     __scp: persistence, __sideRegistryAtom: () => registryFamily,
-    __sideAccount: accountSignal, __sideUser: userSignal, Ju: { tabs$: tabSignal },
-    za: responseFamily,
-    CO: (tabs, progress) => tabs.map(row => ({
-      ...row, isResponseInProgress: progress(row.conversationId),
-    })),
+    __sideAccount: accountSignal, __sideUser: userSignal,
   };
   const selector = vm.runInNewContext(
     fs.readFileSync(new URL("../hooks/summary.js", import.meta.url), "utf8"), context,
@@ -183,24 +179,24 @@ test("actual summary hook reads the native KV family with a key and preserves re
       assert.equal(key, undefined);
       return persistence.readRegistry(storage);
     }
-    if (signal === tabSignal) return [{ conversationId: "live-side", tabId: "sidechat:live-side" }];
-    if (signal === responseFamily) {
-      assert.equal(arguments.length, 2);
-      return key === "live-side";
-    }
     if (signal === accountSignal) return account;
     if (signal === userSignal) return "user-one";
     throw Error("Unknown fixture signal");
   }
   const scope = { value: { conversationId: "parent-one" } };
-  const rows = selector({ get, scope });
+  const nativeRows = [{
+    conversationId: "live-side", tabId: "sidechat:live-side", isResponseInProgress: true,
+    hasUnreadTurn: true, savedThread: { hostId: "local", threadId: "live-side" },
+  }];
+  const rows = selector({ get, scope }, nativeRows);
   assert.deepEqual(Array.from(rows, row => row.conversationId), ["live-side", "closed-side"]);
   assert.equal(rows[0].isResponseInProgress, true);
+  assert.strictEqual(rows[0], nativeRows[0], "native attached-chat row and metadata stay intact");
   account = "account-two";
-  assert.deepEqual(Array.from(selector({ get, scope }), row => row.conversationId), ["live-side"]);
+  assert.deepEqual(Array.from(selector({ get, scope }, nativeRows), row => row.conversationId), ["live-side"]);
   account = "account-one";
   persistence.remember(storage, durable("second-side"), []);
-  assert.equal(selector({ get, scope }).length, 3);
+  assert.equal(selector({ get, scope }, nativeRows).length, 3);
 });
 
 test("legacy and unified presentation hide inherited history while canonical context stays intact", () => {
@@ -291,7 +287,7 @@ test("RPC finally records full request, response and non-enumerable error fields
  * Evaluate the actual version adapter's creation function with native API-shaped services.
  * The fixture records side-boundary policy, persistent fork flags and cancelled-thread cleanup.
  */
-function creationFixture(hostId = "local") {
+function creationFixture(hostId = "local", attached = false) {
   const storage = storageFixture();
   const requests = [];
   let account = "account-one";
@@ -299,14 +295,19 @@ function creationFixture(hostId = "local") {
   const context = {
     __scp: persistence, __sideStorage: () => storage,
     __sideAccount: "account", __sideUser: "user",
-    N: () => false, Re: async () => ["/empty-workspace"],
-    Ue: async () => ({ instructions: "Native instructions" }),
-    qe: () => false, he: "detail", xt: "Untrusted parent is reference only",
-    Ae: async (_, host, params) => {
+    a: () => false, Pt: async () => ["/empty-workspace"],
+    Mt: async () => ({ instructions: "Native instructions" }),
+    Lt: () => false, Ze: "detail", Et: "Untrusted parent is reference only",
+    Je: "history", xe: "host", Pe: "gate", s: () => attached,
+    sn: "Scheduled updates cannot run in temporary side chats",
+    Ce: async (_, host, params) => {
       requests.push({ method: "fork", host, params });
-      return { conversationId: "side-one", synchronization: { status: "complete" } };
+      return {
+        conversationId: "side-one", ephemeral: params.ephemeral ?? false,
+        synchronization: { status: "complete" },
+      };
     },
-    L: () => ({
+    U: () => ({
       sendRequest: async (method, params) => {
         requests.push({ method, params });
         return { data: [{ id: "parent-turn" }], nextCursor: null };
@@ -318,8 +319,10 @@ function creationFixture(hostId = "local") {
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/local-create.js", import.meta.url), "utf8"), context);
   return {
-    invoke: () => context.Ut({
-      scope: { get: (atom) => atom === "account" ? account : atom === "user" ? "user-one" : false },
+    invoke: () => context.an({
+      scope: { get: (atom) => atom === "account" ? account : atom === "user" ? "user-one" :
+        atom === "history" ? "paginated" : atom === "gate" ? attached : false },
+      threadSource: "user",
       sourceConversationId: "parent-one", cwd: "/empty-workspace", hostId,
       parentNavigationPath: "/thread/parent-one", collaborationMode: undefined,
       assertRequestCurrent: () => { if (!pending) throw Error("cancelled"); },
@@ -346,7 +349,7 @@ test("actual native creation hook creates a durable local fork with inherited-ID
 test("cancelled and identity-retired native creations are archived without recoverable orphan rows", async () => {
   for (const retire of ["cancel", "changeAccount"]) {
     const fixture = creationFixture();
-    fixture.context.Ae = async () => {
+    fixture.context.Ce = async () => {
       fixture[retire]();
       return { conversationId: "side-one", synchronization: { status: "complete" } };
     };
@@ -371,6 +374,19 @@ test("remote creation retains the native temporary fork and creates no local sav
   assert.deepEqual(persistence.readRegistry(fixture.storage).records, {});
 });
 
+/** The new native capability flag must remain effective for hosts outside local plugin storage. */
+test("remote attached creation preserves native persistence without a plugin registry record", async () => {
+  const fixture = creationFixture("remote-host", true);
+  const result = await fixture.invoke();
+  assert.equal(result.persistent, true);
+  assert.equal(result.durable, undefined);
+  assert.equal(fixture.requests[0].params.attachToSource, true);
+  assert.equal(fixture.requests[0].params.ephemeral, undefined);
+  assert.doesNotMatch(fixture.requests[0].params.developerInstructions, /temporary side chats/);
+  assert.equal(fixture.requests.length, 1);
+  assert.deepEqual(persistence.readRegistry(fixture.storage).records, {});
+});
+
 /**
  * Run the actual restoration adapter against account checks and native resume services.
  * Both asynchronous boundaries can retire the identity, without archiving an existing thread.
@@ -381,16 +397,16 @@ function restorationFixture(changeAt) {
   const storage = storageFixture();
   persistence.remember(storage, durable(), []);
   const context = {
-    __scp: persistence, i: () => false, c: () => true,
+    __scp: persistence, n: () => false, v: () => true,
     __sideStorage: () => storage, __sideAccount: "account", __sideUser: "user",
     U: (_, descriptor) => persistence.assertIdentity(descriptor, account, "user-one"),
-    m: async () => {
+    O: async () => {
       if (changeAt === "root-error") throw Error("Native workspace access failed");
       if (changeAt === "roots") account = "account-two";
       if (changeAt === "delete-roots") persistence.forgetCancelled(storage, "side-one");
       return ["/empty-workspace"];
     },
-    b: (_, host) => ({
+    T: (_, host) => ({
       resumeConversation: async (params, options) => {
         requests.push({ host, params, options });
         if (changeAt === "resume") account = "account-two";
@@ -398,7 +414,7 @@ function restorationFixture(changeAt) {
         return { status: "ready" };
       },
     }),
-    d: Error, r: (error) => error.message, Error,
+    p: Error, i: (error) => error.message, Error,
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/restore.js", import.meta.url), "utf8"), context);

@@ -1,18 +1,18 @@
 /** Replace only the native Side chats section, preserving its list and summary components. */
-function oe({ sideChats, onOpen, scope }) {
+function de({ sideChats, onOpen, scope, error }) {
   const React = __sideReactFactory();
   const [selected, setSelected] = React.useState(null);
   React.useEffect(() => __sideRegisterDeleteScope(scope), [scope]);
-  if (sideChats.length === 0 && selected == null) return null;
+  if (sideChats.length === 0 && selected == null && error == null) return null;
   return Q.jsxs(Q.Fragment, { children: [
-    Q.jsx(M.Section, {
+    Q.jsxs(N.Section, {
       sectionKey: `side-chats`,
-      title: Q.jsx(o, {
+      title: Q.jsx(g, {
         id: `codex.localConversation.sideChats.title`, defaultMessage: `Side chats`,
         description: `Title for the side chats section in the chat summary side panel`,
       }),
-      titleSuffix: Q.jsx(M.SectionCount, { count: sideChats.length }),
-      children: Q.jsx(se, { sideChats, onOpen, onDelete: setSelected }),
+      titleSuffix: Q.jsx(N.SectionCount, { count: sideChats.length }),
+      children: [error, Q.jsx(fe, { sideChats, onOpen, onDelete: setSelected })],
     }),
     selected == null ? null : Q.jsx(__codexSideDeleteDialog, {
       scope, row: selected, onClose: () => setSelected(null),
@@ -20,29 +20,44 @@ function oe({ sideChats, onOpen, scope }) {
   ] });
 }
 
-/** Separate sibling buttons keep opening a chat independent of its destructive action menu. */
-function se({ sideChats, onOpen, onDelete }) {
-  return Q.jsx(M.List, {
-    items: sideChats, getKey: ce,
-    children: (row) => Q.jsxs(`div`, {
-      className: `flex min-w-0 items-center gap-1`,
-      children: [
-        Q.jsxs(M.ItemButton, {
+/** Preserve native unread/status/context menus; plugin records gain a separate deletion menu. */
+function fe({ sideChats, onOpen, onDelete }) {
+  const intl = n();
+  return Q.jsx(N.List, {
+    items: sideChats, getKey: X,
+    children: (row) => {
+      const button = Q.jsxs(N.ItemButton, {
           className: `min-w-0 flex-1`, disabled: row.deletion != null,
           "aria-busy": row.deletion != null || row.isResponseInProgress,
+          "aria-label": row.title,
+          "aria-description": row.hasUnreadTurn ? intl.formatMessage({
+            id: `sidebar.navItem.unread`, defaultMessage: `Unread updates`,
+            description: `Accessible description for a navigation item with unread updates`,
+          }) : void 0,
           onClick: () => { if (!row.deletion) onOpen(row); },
           children: [
-            Q.jsx(M.ItemLeading, {
-              children: row.deletion || row.isResponseInProgress ? Q.jsx(s, {}) : Q.jsx(C, {}),
+            Q.jsx(N.ItemLeading, {
+              children: Q.jsx(D, {}),
             }),
-            Q.jsx(M.ItemLabel, {
+            Q.jsx(N.ItemLabel, {
               children: row.deletion ? `${row.title} · 删除中` : row.title,
             }),
+            Q.jsx(N.ItemMeta, {
+              variant: `section-status`,
+              children: Q.jsx(A, { statusState: {
+                type: row.deletion || row.isResponseInProgress ? `loading` : `idle`,
+                unread: row.hasUnreadTurn,
+              } }),
+            }),
           ],
-        }),
-        row.durable == null ? null : Q.jsx(__codexSideChatMenu, { row, onDelete }),
-      ],
-    }),
+      });
+      if (row.durable == null) return row.getMenuItems == null ? button :
+        Q.jsx(a, { getItems: row.getMenuItems, children: button });
+      return Q.jsxs(`div`, {
+        className: `flex min-w-0 items-center gap-1`,
+        children: [button, Q.jsx(__codexSideChatMenu, { row, onDelete })],
+      });
+    },
   });
 }
 

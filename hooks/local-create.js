@@ -1,98 +1,100 @@
 /**
- * Replacement for Ut in build 22530 only; native symbol bindings come from the original asset.
- * Cloud/remote paths keep their original temporary behavior. Local forks use native persistence.
- * assertRequestCurrent prevents an identity-retired or cancelled creation becoming an orphan.
+ * Replace build 24141's an using its hash-pinned native bindings. Local forks retain the
+ * plugin's durable registry; other hosts keep the new native attachToSource capability gate.
+ * Cancellation and identity checks surround each async boundary that can create saved data.
  */
-async function Ut({
-  scope: e,
-  sourceConversationId: t,
-  threadSource: n,
-  cwd: r,
-  hostId: i,
-  collaborationMode: a,
-  instructionOverrides: o,
-  parentNavigationPath: s,
-  assertRequestCurrent,
-  /** Native cleaned display text, or the localized placeholder, allocated atomically with the fork. */
+async function an({
+  scope, sourceConversationId, threadSource, cwd, hostId, collaborationMode,
+  instructionOverrides, parentNavigationPath, assertRequestCurrent,
+  /** Native cleaned text or localized placeholder, allocated atomically with the fork. */
   naming,
 }) {
-  if (N(i)) {
-    let r = await Et({
-      scope: e, sourceConversationId: t, threadSource: n,
-      collaborationMode: a, developerInstructions: xt, parentNavigationPath: s,
+  if (a(hostId)) {
+    const result = await zt({
+      scope, sourceConversationId, threadSource, collaborationMode,
+      developerInstructions: Et, parentNavigationPath,
     });
-    if (r == null) return null;
-    if (r.status !== `created`) throw I(e, r);
-    return { conversationId: r.conversationId, hostId: i, creation: r };
+    if (result == null) return null;
+    if (result.status !== `created`) throw L(scope, result);
+    return { conversationId: result.conversationId, hostId, creation: result };
   }
-  const persistent = i === `local`;
-  const accountId = e.get(__sideAccount);
-  const userId = e.get(__sideUser);
-  /** Currency checks bind this fork to the identity and pending tab that requested it. */
+  const persistent = hostId === `local`;
+  const accountId = scope.get(__sideAccount);
+  const userId = scope.get(__sideUser);
+  /** Bind the fork to its original pending tab and signed-in account throughout creation. */
   const current = () => {
     assertRequestCurrent?.();
     if (persistent && (accountId == null || userId == null ||
-        accountId !== e.get(__sideAccount) || userId !== e.get(__sideUser))) {
+        accountId !== scope.get(__sideAccount) || userId !== scope.get(__sideUser))) {
       throw Error(`The signed-in identity changed before the side chat could open`);
     }
   };
   current();
-  let [c, { instructions: l }] = await Promise.all([
-    Re(e, t),
-    Ue({
-      cwd: r, hostId: i,
-      ...(qe(e, i, !0) ? { hostedAutomationsEnabled: !0 } : {}),
-      includeProseDetailLevelInstructions: e.get(he),
-      instructionOverrides: o, threadId: t,
+  const [workspaceRoots, { instructions }] = await Promise.all([
+    Pt(scope, sourceConversationId),
+    Mt({
+      cwd, hostId,
+      ...(Lt(scope, hostId, !0) ? { hostedAutomationsEnabled: !0 } : {}),
+      includeProseDetailLevelInstructions: scope.get(Ze),
+      instructionOverrides, threadId: sourceConversationId,
     }),
   ]);
   current();
+  /** Native attached persistence remains separate from plugin-managed local saved threads. */
+  const attached = !persistent && threadSource === `user` &&
+    scope.get(Je, sourceConversationId) === `paginated` &&
+    s(scope.get(xe, hostId), `persistentSideChats`) && scope.get(Pe, `1450837220`);
   const params = {
-    sourceConversationId: t, threadSource: n, cwd: r, workspaceRoots: c,
-    collaborationMode: a, ephemeral: !persistent, addForkedSyntheticItem: !1,
-    developerInstructions: `${l}\n\n${xt}
+    sourceConversationId, threadSource, cwd, workspaceRoots, collaborationMode,
+    ...(attached ? { attachToSource: !0 } : { ephemeral: !persistent }),
+    addForkedSyntheticItem: !1,
+    developerInstructions: persistent ? `${instructions}\n\n${Et}
 
-Scheduled updates can’t run in side chats. If the user asks for a recurring monitor here, explain that they should open the main chat or start a new chat, then set up the schedule there. Do not claim scheduled updates were set up in this side chat. Scheduling for another chat or a standalone task remains available.`,
-    sideConversation: !0, sideConversationParentNavigationPath: s,
+Scheduled updates can’t run in side chats. If the user asks for a recurring monitor here, explain that they should open the main chat or start a new chat, then set up the schedule there. Do not claim scheduled updates were set up in this side chat. Scheduling for another chat or a standalone task remains available.` :
+      [instructions, Et, ...(attached ? [] : [sn])].join(`\n\n`),
+    sideConversation: !0, sideConversationParentNavigationPath: parentNavigationPath,
   };
-  const u = await __scp.loggedRpc(`forkConversation`, params, () => Ae(e, i, params));
+  const result = await __scp.loggedRpc(`forkConversation`, params, () =>
+    Ce(scope, hostId, params));
   try {
     current();
-    if (persistent && u.synchronization.status === `failed`) {
-      throw Error(u.synchronization.message);
+    if (persistent && result.synchronization.status === `failed`) {
+      throw Error(result.synchronization.message);
     }
     let durable;
     if (persistent) {
       const inheritedTurnIds = await __scp.inheritedBoundary(
-        (method, params) => L(e, i).sendRequest(method, params), u.conversationId, current,
+        (method, input) => U(scope, hostId).sendRequest(method, input),
+        result.conversationId, current,
       );
       current();
       durable = {
-        conversationId: u.conversationId, sourceConversationId: t, hostId: `local`,
-        parentNavigationPath: s, accountId, userId, contextInjected: !0,
-        collaborationMode: a ?? null, presentation: `side-chat`,
+        conversationId: result.conversationId, sourceConversationId, hostId: `local`,
+        parentNavigationPath, accountId, userId, contextInjected: !0,
+        collaborationMode: collaborationMode ?? null, presentation: `side-chat`,
       };
       durable = await __scp.remember(__sideStorage(), durable, inheritedTurnIds, naming);
       current();
     }
     return {
-      conversationId: u.conversationId, hostId: i, durable,
+      conversationId: result.conversationId, hostId, durable,
+      persistent: persistent ? !1 : !result.ephemeral,
       creation: {
-        status: `created`, conversationId: u.conversationId,
-        firstTurn: u.synchronization.status === `failed`
-          ? { status: `not-started`, message: u.synchronization.message }
+        status: `created`, conversationId: result.conversationId,
+        firstTurn: result.synchronization.status === `failed`
+          ? { status: `not-started`, message: result.synchronization.message }
           : { status: `not-requested` },
       },
     };
   } catch (error) {
     if (persistent) {
       const archiveParams = {
-        conversationId: u.conversationId,
+        conversationId: result.conversationId,
         options: { useAppServerPins: !1, source: `side-chat-cancelled` },
       };
       await __scp.loggedRpc(`archiveConversation`, archiveParams, () =>
-        L(e, i).archiveConversation(u.conversationId, archiveParams.options));
-      await __scp.forgetCancelled(__sideStorage(), u.conversationId);
+        U(scope, hostId).archiveConversation(result.conversationId, archiveParams.options));
+      await __scp.forgetCancelled(__sideStorage(), result.conversationId);
     }
     throw error;
   }

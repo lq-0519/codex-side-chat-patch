@@ -347,6 +347,40 @@ test("native menu hands focus to confirmation only on selection and never sends 
   assert.equal(initializations, 2);
 });
 
+/** New native attached rows retain their discovery menu, unread label and status indicator. */
+test("side list preserves native attached menus and unread state while plugin rows use permanent deletion", () => {
+  const context = {
+    Q: { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
+    N: Object.fromEntries(["List", "ItemButton", "ItemLeading", "ItemLabel", "ItemMeta"]
+      .map(name => [name, name])),
+    n: () => ({ formatMessage: () => "Unread updates" }),
+    D: "side-icon", A: "status", a: "native-context-menu", X: row => row.tabId,
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(new URL("../hooks/side-list.js", import.meta.url), "utf8"), context);
+  const opened = [];
+  const native = {
+    tabId: "sidechat:attached", title: "Attached", hasUnreadTurn: true,
+    isResponseInProgress: true, getMenuItems: () => ["native-rename", "native-archive"],
+  };
+  const plugin = { tabId: "sidechat:plugin", title: "Plugin", durable: durable() };
+  const list = context.fe({
+    sideChats: [native, plugin], onOpen: row => opened.push(row), onDelete: () => {},
+  });
+  const attached = list.props.children(native);
+  assert.equal(attached.type, "native-context-menu");
+  assert.strictEqual(attached.props.getItems, native.getMenuItems);
+  const button = attached.props.children;
+  assert.equal(button.props["aria-description"], "Unread updates");
+  assert.equal(button.props.children[2].props.children.props.statusState.unread, true);
+  assert.equal(button.props.children[2].props.children.props.statusState.type, "loading");
+  button.props.onClick();
+  assert.strictEqual(opened[0], native);
+  const saved = list.props.children(plugin);
+  assert.equal(saved.type, "div");
+  assert.strictEqual(saved.props.children[1].type, context.__codexSideChatMenu);
+});
+
 /**
  * Evaluate the actual dialog template with native-shaped components and a small hook renderer.
  * This verifies cancellation and same-frame submission behavior instead of matching source text.
@@ -437,11 +471,11 @@ test("actual native cleanup bypasses close callbacks and undo while preserving p
     };
   }
   const context = {
-    _K: target => controllers.get(target),
+    LU: target => controllers.get(target),
     /** Match the native relation-removal helper's scope/parent/child argument contract. */
-    WEn: (targetScope, parent, child) =>
+    Vvi: (targetScope, parent, child) =>
       targetScope.set(relationFamily, parent, values => values.filter(id => id !== child)),
-    ITe: (_, parent, ids) => { assert.equal(parent, "parent"); layoutIds.push(...ids); },
+    t_i: (_, parent, ids) => { assert.equal(parent, "parent"); layoutIds.push(...ids); },
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/delete-adapter.js", import.meta.url), "utf8")
@@ -654,9 +688,9 @@ test("native title hook maps entity keys to turn IDs and follows right/bottom ta
     };
     const context = {
       __scp: runtime, codexSidePatchStorage: () => f.storage,
-      F_: "account", hv: "user", IT: "canonical", zT: "turn-id", SQn: "native-count",
-      _K: target => controllers.get(target),
-      iv: (key, _, callback) => {
+      p_: "account", K_: "user", jw: "canonical", Pw: "turn-id", fEn: "native-count",
+      LU: target => controllers.get(target),
+      I_: (key, _, callback) => {
         assert.equal(key, runtime.REGISTRY_KEY);
         subscriptions.add(callback); return () => subscriptions.delete(callback);
       },
