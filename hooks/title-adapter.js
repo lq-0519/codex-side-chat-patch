@@ -1,63 +1,88 @@
-/** Native signal/controller names below belong exclusively to the hash-pinned build 24141. */
+/** Native manager and panel symbols below belong to the hash-pinned build 24614 module graph. */
 
 /**
- * Translate canonical entity keys through the native turn-ID selector before comparing the
- * inherited boundary. Temporary hosts keep the original counter; saved local sides require
- * loaded canonical history and current ownership, without changing shared history selectors.
+ * Preserve Codex's normal first-turn guard for ordinary threads. Saved side chats compare their
+ * loaded canonical turn IDs with the persisted inherited boundary before accepting one title.
  */
-export function codexSidePatchIsFirstTurn(scope, conversationId) {
+function codexSidePatchIsFirstTurn(scope, conversationId) {
   const storage = codexSidePatchStorage();
   const record = __scp.readRegistry(storage).records[conversationId];
-  if (record == null) return (scope.get(fEn, conversationId) ?? 0) === 0;
-  __scp.assertUsable(storage, record.durable, scope.get(p_), scope.get(K_));
+  const signals = n("tl5a");
+  if (record == null) return (scope.get(signals.VT, conversationId) ?? 0) === 0;
+  const identity = n("SPnB");
+  __scp.assertUsable(
+    storage,
+    record.durable,
+    scope.get(identity.chatGptAuthenticatedAccountId$),
+    scope.get(identity.o8),
+  );
   if (record.naming?.phase === "content") return false;
-  const keys = scope.get(jw, { hostId: `local`, threadId: conversationId });
-  return __scp.shouldNameFirstTurn(storage, conversationId,
-    keys?.map((key) => ({ turnId: scope.get(Pw, key) ?? key.entityKey })));
+  const conversation = (0, n("Dgwo").V)(scope, "local").getConversation(conversationId);
+  return __scp.shouldNameFirstTurn(
+    storage,
+    conversationId,
+    conversation == null ? null : P(conversation),
+  );
 }
 
-/**
- * Repair both panel targets using the confirmed registry descriptor. Updating visible title,
- * durableRoute and content.durable together preserves native serialize/retry/move behavior.
- * A stale ordinary-close closure is repaired again when its tab registers, while native main
- * protects layout writes. Matching identity/parent checks keep retired scopes from showing names.
- */
+/** Update both panel targets after native main confirms the registry title mutation. */
 function __codexSideSyncTitle(scope, durable) {
-  if (![durable.sourceConversationId, durable.conversationId].includes(scope.value.conversationId) ||
-      durable.accountId !== scope.get(p_) || durable.userId !== scope.get(K_)) return;
+  const identity = n("SPnB");
+  if (
+    ![durable.sourceConversationId, durable.conversationId]
+      .includes(scope.value.conversationId) ||
+    durable.accountId !== scope.get(identity.chatGptAuthenticatedAccountId$) ||
+    durable.userId !== scope.get(identity.o8)
+  ) return;
   const record = __scp.readRegistry(codexSidePatchStorage()).records[durable.conversationId];
   if (record == null || record.deletion || record.durable.title == null) return;
   const title = record.durable.title;
-  for (const target of [`right`, `bottom`]) {
-    const controller = LU(target);
+  const panels = n("XXJV");
+  for (const target of ["right", "bottom"]) {
+    const controller = panels.getThreadPanelTabController(target);
     const tab = scope.get(controller.tabById$, `sidechat:${durable.conversationId}`);
-    if (tab == null || tab.props?.content?.hostId !== `local`) continue;
+    if (tab == null || tab.props?.content?.hostId !== "local") continue;
     const content = tab.props.content;
-    if (tab.title === title && tab.durableRoute?.params?.title === title &&
-        content.durable?.title === title) continue;
+    if (
+      tab.title === title &&
+      tab.durableRoute?.params?.title === title &&
+      content.durable?.title === title
+    ) continue;
     controller.updateTab(scope, tab.tabId, {
       title,
-      durableRoute: tab.durableRoute == null ? undefined : {
-        ...tab.durableRoute, params: { ...tab.durableRoute.params, title },
+      durableRoute: tab.durableRoute == null ? void 0 : {
+        ...tab.durableRoute,
+        params: { ...tab.durableRoute.params, title },
       },
-      props: { ...tab.props, content: {
-        ...content, durable: { ...content.durable, ...record.durable },
-      } },
+      props: {
+        ...tab.props,
+        content: {
+          ...content,
+          durable: { ...content.durable, ...record.durable },
+        },
+      },
     });
   }
 }
 
-/**
- * Native composer success supplies olr's existing Markdown-cleaned text. Persist once, then
- * update live chrome; other windows receive the same registry notification. A textless success
- * seals naming too, and every async boundary rechecks account/deletion before exposing a title.
- */
-export async function codexSidePatchNameFirstTurn(scope, conversationId, title) {
+/** Persist the native Markdown-cleaned first response title once, then update live panel chrome. */
+async function codexSidePatchNameFirstTurn(scope, conversationId, title) {
   const storage = codexSidePatchStorage();
   const durable = __scp.readRegistry(storage).records[conversationId]?.durable;
-  __scp.assertUsable(storage, durable, scope.get(p_), scope.get(K_));
-  if (durable == null) throw Error(`The saved side chat no longer exists`);
+  const identity = n("SPnB");
+  __scp.assertUsable(
+    storage,
+    durable,
+    scope.get(identity.chatGptAuthenticatedAccountId$),
+    scope.get(identity.o8),
+  );
+  if (durable == null) throw Error("The saved side chat no longer exists");
   const updated = await __scp.nameFirstTurn(storage, durable, title);
-  __scp.assertUsable(storage, updated, scope.get(p_), scope.get(K_));
+  __scp.assertUsable(
+    storage,
+    updated,
+    scope.get(identity.chatGptAuthenticatedAccountId$),
+    scope.get(identity.o8),
+  );
   __codexSideSyncTitle(scope, updated);
 }

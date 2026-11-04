@@ -1,288 +1,119 @@
-"""Exact build adapter; no global ephemeral substitution or bundled vendor source copies."""
+"""Exact build adapter for Codex's Rspack side-chat modules and native persistent storage."""
 
 from pathlib import Path
 
 from .archive import read_file, sha256_bytes
 
 
-# PROFILE pins the app, engine and complete original archive inspected for this adapter.
+# PROFILE pins the complete vendor archive and bundled CLI inspected for this adapter.
 PROFILE = {
-    "id": "codex-24141-native-side-v1",
+    "id": "codex-24614-rspack-side-v1",
     "bundle_id": "com.openai.codex",
-    "version": "26.1027.61615",
-    "build": "24141",
-    "cli_version": "0.166.0-alpha.5.1",
-    "asar_sha256": "bb88615052255e79b5977885f9a0cc212c268589587c79d4d3b7c4b46e881a95",
+    "version": "26.1029.61003",
+    "build": "24614",
+    "cli_version": "0.166.0-alpha.6",
+    "asar_sha256": "0c951258b7ab381ec601045ffb02159e53f424548dda18e6a4dcfd126557383b",
 }
-# ASSETS are the exact target bytes. Matching the version alone is never sufficient.
+# ASSETS pin complete Rspack chunks, not only the individual minified modules patched below.
 ASSETS = {
-    "local-conversation-side-chat-4d7fc512f796.js":
-        "a732b0c57fb9360c1901ec9c1e27c9a8f284bdd93b244ddaf8d6deddb2960ff1",
-    "app-initial-18b189e867e7.js":
-        "244653d55e434b27618a848bef14d6d6781569bf58e8656cf644445113ffc032",
-    "persistent-171a29907c0a.js":
-        "de6ce52f288d02f6a8e5bd2e89b51ebfc4435673467708483eb6c43079370dce",
-    "local-conversation-thread-2f594f841b07.js":
-        "af8e8ab2e97566d25d69249ef8adf5a86d0bf0bbf4c306e4fbc50c80e8837263",
-    "local-conversation-side-chats-9a3e815461eb.js":
-        "5448c533e15f1cb8bc4caed480ea80a05558628c2891fc5abcb7c9c6b7af7a43",
-    "composer-content-b926d24ef280.js":
-        "cf56f37714e14488239f4eb715b845067e75f8c2e98851c768c4110d3eb6fd08",
-    # First-turn title updates moved out of the composer into this native shared callback.
-    "app-primary-75d53eef2374.js":
-        "ebaecd54561e7e3da76c08b0d900e056424d57b1b23675afad4d7d235599f80b",
-    # The existing menu and shortcut share this atom with the native creation admission check.
-    "availability-e24a65467b89.js":
-        "e4e7360dd1614ef2acec5a6f3b786e13e29063873d3a1a4653d995314bc0c434",
+    "async/24191.589dcc9878.js":
+        "bd23d61085fcad60b8f582112d4ca0695b34204510cff900ba0f87c9c61228d0",
+    "async/299250.3353e2695c.js":
+        "e9a2d0385ef5bf4a6bf930327c9bcfbcf8634592a4a74d792f1477588079fb93",
+    "async/357959.de4ec41383.js":
+        "9ce961467bdae5b5afc3a73974235e39483cb9bad0f83ce6177a61a0f996f51d",
+    "async/589850.4264f95e93.js":
+        "3e01ea1eaaacea58cda43e28dd8a3170243d017e5598083d2952f70de8aeb867",
+    "async/563813.7486e43f6b.js":
+        "be18b9983577cfb50cac8c98725c0d554d32110d7c485950177f0481ef2f0d09",
 }
 # MAIN_ASSETS independently pins native main-process storage coordination for deletion.
 MAIN_ASSETS = {
-    ".vite/build/early-bootstrap-439-a0f25ba32c465de1.js":
-        "c23f63f8ff156b2a92a81ee2870d80ab959ced6ce6232d6fe7e54bbefe11d333",
+    ".vite/build/early-bootstrap-45-628adb74a9c47df1.js":
+        "b799f597bb0be309b49eac7c4e4b972f2bb8b5dd82a4e44bede43add38568820",
 }
-# ROOT locates tracked templates only; all extraction and validation output stays outside Git.
+# ROOT locates tracked templates only; extraction and validation output stays outside Git.
 ROOT = Path(__file__).resolve().parents[1]
-# RUNTIME_PATH is a new relative ESM module in the existing ASAR asset directory.
+# RUNTIME_PATH remains an ordinary ESM dependency of each patched Rspack chunk.
 RUNTIME_PATH = "webview/assets/codex-native-side-patch-v1.mjs"
-# IMPORT shares stateless helpers without introducing a dependency on application initialization.
-IMPORT = 'import*as __scp from"./codex-native-side-patch-v1.mjs";\n'
-# SIDE_IMPORT exposes native identity atoms and persistent storage, preserving account boundaries.
-SIDE_IMPORT = (
-    'import{Klr as __sideAccount,ycr as __sideUser,psr as __sideIntl,'
-    'codexSidePatchStorage as __sideStorage,'
-    'codexSidePatchRegisterDeletionTab as __sideRegisterDeleteTab,'
-    'codexSidePatchRegistryAtom as __sideRegistryAtom}'
-    'from"./app-initial-18b189e867e7.js";\n'
-)
-# UI_ASSETS pins unchanged UI exports, Portal behavior and existing side-chat entry/shortcut wiring.
-UI_ASSETS = {
-    "app-shared-601019a330d7.js":
-        "02dd01d1e7c076ec44f10bb8446976f07be9eb007d1c32445adf5cda13221116",
-    # The launcher passes the shared availability atom through to its side-chat action.
-    "thread-panel-launcher-artifacts-17e648b1a79d.js":
-        "0a2da3ede51bfb82183771b6b39f176d5adead539434127692d6a6ecf0c2b0c0",
-    # The original shortcut is enabled only while that launcher contains the side-chat action.
-    "thread-side-panel-new-tab-c74d1915bdc1.js":
-        "1fe10d5b1ce3caabeb3d177484073674e155cd2cb1c05bdf3a65eedf1bd5b0de",
-}
+IMPORT = 'import*as __scp from"../codex-native-side-patch-v1.mjs";\n'
 
 
 def replace_once(text, old, new):
-    """Reject missing/ambiguous anchors rather than guessing how an unknown bundle works."""
+    """Reject missing or ambiguous anchors instead of guessing how an unknown bundle works."""
     if text.count(old) != 1:
         raise ValueError("Non-unique patch anchor: " + repr(old[:160]))
     return text.replace(old, new, 1)
 
 
-def replace_between(text, beginning, following, replacement):
-    """Replace one complete known function using two unique neighboring declarations."""
-    if text.count(beginning) != 1 or text.count(following) != 1:
-        raise ValueError("Function boundary is not unique")
-    start = text.index(beginning)
-    end = text.index(following, start)
-    return text[:start] + replacement + "\n" + text[end:]
+def replace_count(text, old, new, expected):
+    """Replace an exact known number of equivalent call sites in one hash-pinned chunk."""
+    if text.count(old) != expected:
+        raise ValueError(
+            f"Expected {expected} patch anchors, found {text.count(old)}: {old[:120]!r}"
+        )
+    return text.replace(old, new)
+
+
+def replace_between_after(text, marker, beginning, following, replacement):
+    """Replace one function or region after a unique module marker."""
+    if text.count(marker) != 1:
+        raise ValueError("Module marker is not unique: " + repr(marker))
+    module_start = text.index(marker)
+    start = text.find(beginning, module_start)
+    end = text.find(following, start + len(beginning))
+    if start < 0 or end < 0:
+        raise ValueError("Patch region is missing after module marker")
+    if text.find(beginning, start + 1, end) >= 0:
+        raise ValueError("Patch beginning is ambiguous inside module region")
+    return text[:start] + replacement + text[end:]
 
 
 def build_replacements(archive):
-    """Construct deterministic, scoped patches from exact original packaged asset hashes."""
-    for name, digest in UI_ASSETS.items():
-        if sha256_bytes(read_file(archive, "webview/assets/" + name)) != digest:
-            raise ValueError("Unknown native UI asset: " + name)
+    """Construct deterministic scoped patches from exact original packaged chunk hashes."""
     source = {}
     for name, digest in ASSETS.items():
         original = read_file(archive, "webview/assets/" + name)
         if sha256_bytes(original) != digest:
-            raise ValueError("Unknown original asset: " + name)
+            raise ValueError("Unknown original Rspack chunk: " + name)
         source[name] = original.decode("utf-8")
 
-    name = "availability-e24a65467b89.js"
-    # BS (exported as f3n) resolves the source conversation's actual manager host. Check it
-    # reactively rather than trusting the scope's optional hostId or the globally selected host.
-    # Only a local-thread on the local manager gains the ChatGPT-mode exception; cloud/remote
-    # paths retain their original gate, and the native surface, account and archive checks remain.
-    text = replace_once(
-        source[name],
-        "e2t as o,jer as s,p5n as c",
-        "e2t as o,jer as s,p5n as c,f3n as __sideHost,"
-        "u3n as __sideInitHost",
-    )
-    # Initialize the exported host atom through its original idempotent module initializer.
-    # Availability may be imported before the thread/launcher modules initialize that binding.
-    text = replace_once(text, "u(),o(),d=t(c,", "u(),o(),__sideInitHost(),d=t(c,")
-    source[name] = (
-        "/** Reuse native side-chat menus and shortcuts for local threads in ChatGPT mode. */\n"
-        + replace_once(
-            text,
-            "({get:e})=>e(l)&&(!e(s)||e(i,`2402779155`))",
-            "({get:e,scope:t})=>e(l)&&(!e(s)||e(i,`2402779155`)||"
-            "(t.value.routeKind===`local-thread`&&"
-            "e(__sideHost,t.value.conversationId)===`local`))",
-        )
-    )
-
-    name = "local-conversation-side-chat-4d7fc512f796.js"
-    text = replace_between(
-        source[name], "async function an(", "function on(",
-        (ROOT / "hooks/local-create.js").read_text(),
-    )
-    # A local native fork must be cancelled if its original loading tab has been retired.
-    text = replace_once(
-        text,
-        "instructionOverrides:Xe(e.get(Me),e.get(mt,i)??c?.settings.model??null),parentNavigationPath:",
-        "assertRequestCurrent:()=>{if(!k.isCurrent())throw Error(`Side chat creation cancelled`);},"
-        "naming:{phase:u==null?`placeholder`:`content`,baseTitle:u??on(d,w)},"
-        "instructionOverrides:Xe(e.get(Me),e.get(mt,i)??c?.settings.model??null),parentNavigationPath:",
-    )
-    # Cancellation archives the actual saved thread and then removes only the provisional relation.
-    text = replace_once(
-        text,
-        "y??await U(e,t.hostId).archiveConversation(t.conversationId,"
-        "{useAppServerPins:!1,source:`side-chat-cancelled`});return",
-        "if(y==null){"
-        "const p={conversationId:t.conversationId,options:"
-        "{useAppServerPins:!1,source:`side-chat-cancelled`}};"
-        "await __scp.loggedRpc(`archiveConversation`,p,()=>"
-        "U(e,t.hostId).archiveConversation(t.conversationId,p.options));"
-        "if(t.hostId===`local`)await __scp.forgetCancelled(__sideStorage(),t.conversationId);}"
-        "return",
-    )
-    # Recheck after creation/resume and after caller preparation before completing a native panel.
-    identity_check = (
-        "__scp.assertUsable(__sideStorage(),j.durable,e.get(__sideAccount),e.get(__sideUser))"
-    )
-    text = replace_once(
-        text,
-        "if(!k.isCurrent())return await A(j),null;",
-        "if(!k.isCurrent())return await A(j),null;" + identity_check + ";"
-        "if(j.durable?.hostId===`local`)T=j.durable.title??T;",
-    )
-    text = replace_once(
-        text,
-        "if(M==null&&m!=null&&await m(t),!k.isCurrent())",
-        "if(M==null&&m!=null&&await m(t)," + identity_check + ",!k.isCurrent())",
-    )
-    # ne is synchronous: persist its final title at the preceding async boundary before complete().
-    text = replace_once(
-        text,
-        "let{conversationId:s,hostId:u}=r,m=r.durable!=null||r.persistent===!0;",
-        "let{conversationId:s,hostId:u}=r,m=r.durable!=null||r.persistent===!0;"
-        "__scp.assertUsable(__sideStorage(),r.durable,e.get(__sideAccount),e.get(__sideUser));",
-    )
-    text = replace_once(
-        text, "if(ne(j)||(k.fail(_),await A(j))",
-        "if(j.durable?.hostId===`local`){"
-        "j.durable=await __scp.remember(__sideStorage(),{...j.durable,title:T});"
-        "T=j.durable.title??T;}"
-        "if(!k.isCurrent())return await A(j),null;"
-        + identity_check + ";if(ne(j)||(k.fail(_),await A(j))",
-    )
-    # Normal close already avoids native deletion for durable threads. Preserve its discovery row.
-    text = replace_once(
-        text,
-        "m&&ht(e,_)!=null||(p?.(),ke(e,i,s),f?.(!0))",
-        "m&&ht(e,_)!=null||("
-        "r.durable?.hostId===`local`&&Promise.resolve(__scp.hide(__sideStorage(),s))"
-        ".catch(error=>console.error(__scp.errorJSON(error))),"
-        "p?.(),ke(e,i,s),f?.(!0))",
-    )
-    text = replace_once(
-        text,
-        "let x=()=>{if(m)return;let t=e.get(C.tabById$,_)?.contentInstance;",
-        "let x=()=>{if(r.durable?.hostId===`local`)"
-        "return __sideRegisterDeleteTab(e,r.durable);"
-        "if(m)return;let t=e.get(C.tabById$,_)?.contentInstance;",
-    )
-    # A normal close that was already awaiting voice shutdown must not rebuild a deleted tab.
-    text = replace_once(
-        text,
-        "onClose:()=>{g?.();let t=()=>{C.openTab(e,$,",
-        "onClose:()=>{g?.();let t=()=>{"
-        "if(r.durable?.hostId===`local`){try{"
-        "__scp.assertUsable(__sideStorage(),r.durable,e.get(__sideAccount),e.get(__sideUser));"
-        "}catch{return;}}C.openTab(e,$,",
-    )
-    source[name] = IMPORT + SIDE_IMPORT + text
-
-    name = "composer-content-b926d24ef280.js"
+    # Core manager, storage adapter, deletion lifecycle and title adapter.
+    name = "async/24191.589dcc9878.js"
     text = source[name]
-    # Only the two side-composer naming guards change; the shared canonical counter stays intact.
-    for conversation in ["r.localConversationId", "c.localConversationId"]:
-        text = replace_once(
-            text, f"(e.get(yo,{conversation})??0)===0",
-            f"__sideIsFirstTurn(e,{conversation})",
-        )
-    source[name] = (
-        'import{codexSidePatchIsFirstTurn as __sideIsFirstTurn}'
-        'from"./app-initial-18b189e867e7.js";\n'
-    ) + text
-
-    name = "app-primary-75d53eef2374.js"
-    # olr is the native Markdown cleaner; preserve the native callback for other hosts/threads.
-    text = replace_once(
-        source[name],
-        "function slr(e,t,n,r){e.get(VD,{hostId:t,threadId:n})??clr(e,`${xm}${n}`,olr(r))}",
-        "function slr(e,t,n,r){"
-        "if(__scp.isSavedSide(__sideStorage(),t,n))"
-        "__sideNameFirstTurn(e,n,olr(r)).catch(error=>console.error(__scp.errorJSON(error)));"
-        "else e.get(VD,{hostId:t,threadId:n})??clr(e,`${xm}${n}`,olr(r))}",
-    )
-    source[name] = IMPORT + (
-        'import{codexSidePatchStorage as __sideStorage,'
-        'codexSidePatchNameFirstTurn as __sideNameFirstTurn}'
-        'from"./app-initial-18b189e867e7.js";\n'
-    ) + text
-
-    name = "persistent-171a29907c0a.js"
-    source[name] = IMPORT + SIDE_IMPORT + replace_between(
-        source[name], "async function H(", "function U(",
-        (ROOT / "hooks/restore.js").read_text(),
-    )
-
-    name = "app-initial-18b189e867e7.js"
-    text = source[name]
-    # FT is the frontend presentation merge; native server history and PT remain unmodified.
     text = replace_once(
         text,
-        "function FT(e,t){let n=PT(e);return e.turnHistory?.kind===`canonical`?"
-        "dl(n,e.turns,{policy:t}):n}",
-        "function FT(e,t){let n=PT(e);return __scp.displayTurns(codexSidePatchStorage(),e,"
-        "e.turnHistory?.kind===`canonical`?dl(n,e.turns,{policy:t}):n)}",
-    )
-    # Unified timeline selectors read canonical entities directly and bypass FT.
-    text = replace_once(
-        text,
-        "return aTo({conversationRequests:a,isAeonThread:o,",
-        "return aTo(__scp.presentationOptions(codexSidePatchStorage(),"
-        "{id:e,hostId:l.hostId},{conversationRequests:a,isAeonThread:o,",
+        'function N(e,t){let n=P(e);return e.turnHistory?.kind==="canonical"?'
+        '(0,w.H)(n,e.turns,{policy:t}):n}',
+        'function N(e,t){let n=P(e);return __scp.displayTurns('
+        'codexSidePatchStorage(),e,e.turnHistory?.kind==="canonical"?'
+        '(0,w.H)(n,e.turns,{policy:t}):n)}',
     )
     text = replace_once(
         text,
-        "turnEntityKeys:m?.map(({entityKey:e})=>e)})",
-        "turnEntityKeys:m?.map(({entityKey:e})=>e)}))",
-    )
-    text = replace_once(
-        text,
-        "shouldSurfaceRecentConversation(e){return!this.isConversationSuppressed(e.id)",
+        "shouldSurfaceRecentConversation(e){return!this.isConversationSuppressed(e.id)&&"
+        "!0!==e.ephemeral&&!0!==e.sideConversation&&",
         "shouldSurfaceRecentConversation(e){return"
-        "!__scp.isSavedSide(codexSidePatchStorage(),this.params.hostId,e.id)"
-        "&&!this.isConversationSuppressed(e.id)",
+        "!__scp.isSavedSide(codexSidePatchStorage(),this.params.hostId,e.id)&&"
+        "!this.isConversationSuppressed(e.id)&&!0!==e.ephemeral&&!0!==e.sideConversation&&",
     )
     text = replace_once(
         text,
-        "shouldSurfaceThreadSummary(e){return!this.isConversationSuppressed(e.conversationId)",
+        "shouldSurfaceThreadSummary(e){return!this.isConversationSuppressed(e.conversationId)&&"
+        "this.conversations.get(e.conversationId)?.sideConversation!==!0&&",
         "shouldSurfaceThreadSummary(e){return"
-        "!__scp.isSavedSide(codexSidePatchStorage(),this.params.hostId,e.conversationId)"
-        "&&!this.isConversationSuppressed(e.conversationId)",
+        "!__scp.isSavedSide(codexSidePatchStorage(),this.params.hostId,e.conversationId)&&"
+        "!this.isConversationSuppressed(e.conversationId)&&"
+        "this.conversations.get(e.conversationId)?.sideConversation!==!0&&",
     )
-    # Log actual native fork and boundary RPC envelopes only for newly modified local side forks.
+    # Log the exact native fork envelope and response rather than the higher-level helper input.
     text = replace_once(
         text,
-        "let v=await o.sendRequest(`thread/fork`,n.request,f),y=ka(v.thread.id)",
-        "let v=await(c.sideConversation&&r===`default`?"
-        "__scp.loggedRpc(`thread/fork`,n.request,()=>o.sendRequest(`thread/fork`,n.request,f)):"
-        "o.sendRequest(`thread/fork`,n.request,f)),y=ka(v.thread.id)",
+        'let c=await s.sendRequest("thread/fork",t.request,i),h=(0,_.J)(c.thread.id);',
+        'let c=await(l.sideConversation?__scp.loggedRpc("thread/fork",t.request,()=>'
+        's.sendRequest("thread/fork",t.request,i)):s.sendRequest("thread/fork",t.request,i)),'
+        'h=(0,_.J)(c.thread.id);',
     )
-    # Native manager request admission blocks late sends/restores once the deletion claim exists.
     text = replace_once(
         text,
         "async sendRequest(e,t,n){this.assertActive();"
@@ -293,141 +124,323 @@ def build_replacements(archive):
     )
     text = replace_once(
         text,
-        "sendFollowUpMessage(e,t){return Edn(",
+        "sendFollowUpMessage(e,t){return a1(",
         "sendFollowUpMessage(e,t){"
-        "__scp.guardSideRequest(codexSidePatchStorage(),this.hostId,`turn/start`,{threadId:e});"
-        "return Edn(",
+        '__scp.guardSideRequest(codexSidePatchStorage(),this.hostId,"turn/start",'
+        "{threadId:e});return a1(",
     )
     text = replace_once(
         text,
-        "sendThreadFollowerRequest(e,t,n,r){if(this.assertActive(),",
-        "sendThreadFollowerRequest(e,t,n,r){"
+        "async sendThreadFollowerRequest(e,t,n,r){if(this.assertActive(),",
+        "async sendThreadFollowerRequest(e,t,n,r){"
         "__scp.guardSideRequest(codexSidePatchStorage(),this.hostId,t,n);"
         "if(this.assertActive(),",
     )
     text = replace_once(
         text,
-        "this.streamRecovery.markAllConversationsNeedResumeAfterReconnect(e),this.readState.reset()}async ",
         "this.streamRecovery.markAllConversationsNeedResumeAfterReconnect(e),"
-        "this.readState.reset(),__scp.recoverDeletions(this)}async ",
+        "this.readState.reset()}async prewarmConversation",
+        "this.streamRecovery.markAllConversationsNeedResumeAfterReconnect(e),"
+        "this.readState.reset(),__scp.recoverDeletions(this)}async prewarmConversation",
     )
-    text += """
-/** Reuse one native KV adapter across hot selectors; reads still fetch the latest native snapshot. */
+    core_tail = (
+        'ew.enum(["config/read","configRequirements/read","account/gatewayOAuth/read",'
+        '"account/login/start","account/bedrock/discover","account/bedrock/setup",'
+        '"account/gcp/setup"]),p.TF}'
+    )
+    core_adapter = """
+/** Reuse Codex's native persisted-atom store; no second transcript or polling store is added. */
 var __codexSideStorage;
-/** Lazily bind existing persistent KV functions after native initialization, without new I/O. */
-export function codexSidePatchStorage(){
+/** Return the renderer-local mutation adapter after native persisted state initialization. */
+function codexSidePatchStorage(){
+  const kv=n("kpIY");
   return __codexSideStorage??=__scp.mutationStorage({
-    readValue:N_,publish:(key,value)=>A_()(key,value),
-    subscribe:(key,callback)=>I_(key,void 0,callback),
-    clearReply:key=>j_(key,void 0,!1)
+    readValue:key=>kv.TB(key,void 0),
+    publish:(key,value)=>kv.jx(key,value),
+    subscribe:(key,callback)=>kv.w5(key,void 0,callback),
+    clearReply:key=>kv.JQ(key,void 0)
   });
 }
-/** Lazily initialized native KV atom makes saved and hidden rows reactive across windows. */
+/** Lazily create one reactive native KV family for compatibility-registry snapshots. */
 var __codexSideRegistryAtom;
-/** Resolve the registry signal only after the application's signal runtime is initialized. */
-export function codexSidePatchRegistryAtom(){
-  return __codexSideRegistryAtom??=(H_(()=>__scp.REGISTRY_KEY,null));
+/** Resolve the registry family only after Codex's signal runtime is initialized. */
+function codexSidePatchRegistryAtom(){
+  return __codexSideRegistryAtom??=n("Nwp9").Kn(()=>__scp.REGISTRY_KEY,null);
 }
 """
-    text += (ROOT / "hooks/delete-adapter.js").read_text()
-    text += (ROOT / "hooks/title-adapter.js").read_text()
+    core_adapter += (ROOT / "hooks/delete-adapter.js").read_text()
+    core_adapter += "\n" + (ROOT / "hooks/title-adapter.js").read_text()
+    core_adapter += """
+n.d(t,{
+  codexSidePatchStorage:()=>codexSidePatchStorage,
+  codexSidePatchRegistryAtom:()=>codexSidePatchRegistryAtom,
+  codexSidePatchRegisterDeletionScope:()=>codexSidePatchRegisterDeletionScope,
+  codexSidePatchRegisterDeletionTab:()=>codexSidePatchRegisterDeletionTab,
+  codexSidePatchDelete:()=>codexSidePatchDelete,
+  codexSidePatchIsFirstTurn:()=>codexSidePatchIsFirstTurn,
+  codexSidePatchNameFirstTurn:()=>codexSidePatchNameFirstTurn
+});
+"""
+    text = replace_once(
+        text,
+        core_tail,
+        core_tail[:-1] + ";\n" + core_adapter + "\n}",
+    )
     source[name] = IMPORT + text
 
-    name = "local-conversation-thread-2f594f841b07.js"
+    # Native side creation, restoration, admission and tab lifecycle now share one Rspack chunk.
+    name = "async/299250.3353e2695c.js"
     text = source[name]
-    # Reuse the original summary section instead of creating an independent recovery UI.
     text = replace_once(
         text,
-        "vk=l(Yd,({get:e})=>{",
-        "vk=l(Yd,({get:e,scope:__sideScope})=>{",
-    )
-    text = replace_once(
-        text, "return[...new Set([...r.keys(),...n.keys()])]",
-        "return __codexSideSummaryRows({get:e,scope:__sideScope},"
-        "[...new Set([...r.keys(),...n.keys()])]",
-    )
-    text = replace_once(
-        text, "savedThread:o==null?null:s}})})})))()}function bk(",
-        "savedThread:o==null?null:s}}))})})))()}function bk(",
+        'uqEk(e,t,n){var r=n("y5DF"),a=n("Oj9r"),o=n("qixt"),s=n("OMIV"),'
+        'i=n("moBM");let l=(0,r.un)(a.GD,({get:e})=>e(i.sU)&&'
+        '(!e(o.e2)||e(s.JW,"2402779155")));',
+        'uqEk(e,t,n){var r=n("y5DF"),a=n("Oj9r"),o=n("qixt"),s=n("OMIV"),'
+        'i=n("moBM"),c=n("tl5a");let l=(0,r.un)(a.GD,({get:e,scope:t})=>'
+        'e(i.sU)&&(!e(o.e2)||e(s.JW,"2402779155")||'
+        '(t.value.routeKind==="local-thread"&&e(c.qX,t.value.conversationId)==="local")));',
     )
     text = replace_once(
         text,
-        "l=e=>{let r=Fp(t,e.tabId);",
-        "l=e=>{if(e.deletion)return;if(e.isSavedClosed&&e.durable){"
-        "Wg(t,Xg,{durable:e.durable,sourceConversationId:e.durable.sourceConversationId,"
-        "hostId:e.durable.hostId,cwd:null,collaborationMode:e.durable.collaborationMode,"
-        "displayTitle:e.title,intl:t.get(__sideIntl),target:`right`})"
-        ".catch(error=>t.get(tn).danger(error.message));return;}"
-        "let r=Fp(t,e.tabId);",
+        'AqOV(e,t,n){var r=n("DBCl")',
+        'AqOV(e,t,n){var __side=n("SYKY"),__sideIdentity=n("SPnB"),'
+        '__sideManager=n("Dgwo"),r=n("DBCl")',
     )
-    text = replace_once(
-        text, "(by,{sideChats:s,error:c,onOpen:l})",
-        "(by,{sideChats:s,error:c,onOpen:l,scope:t})",
+    text = replace_between_after(
+        text,
+        "AqOV(e,t,n){",
+        "async function v(",
+        "function g(",
+        (ROOT / "hooks/local-create.js").read_text() + "\n",
     )
-    # Runtime text depends on the actual registered thread, so unchanged temporary hosts stay truthful.
     text = replace_once(
         text,
-        "id:`localConversation.sideChat.empty.description`,defaultMessage:"
-        "`Side chats are temporary and disappear when you close the app.`,description:"
-        "`Explains that ephemeral side chats disappear when the app is closed`",
-        "id:__scp.isSavedSide(__sideStorage(),r,t)?"
-        "`codexSidePatch.saved.empty.description`:`localConversation.sideChat.empty.description`,"
-        "defaultMessage:__scp.isSavedSide(__sideStorage(),r,t)?"
-        "`This side chat is saved. Reopen it from Side chats in the parent chat after closing the app.`:"
-        "`Side chats are temporary and disappear when you close the app.`,"
-        "description:`Explains the lifetime of this side chat`",
+        'vBFC(e,t,n){var r=n("SRbQ")',
+        'vBFC(e,t,n){var __side=n("SYKY"),r=n("SRbQ")',
     )
-    source[name] = IMPORT + SIDE_IMPORT + (
-        "/** Merge plugin discovery with the original native attached-chat selector. */\n"
-        "const __codexSideSummaryRows="
-        + (ROOT / "hooks/summary.js").read_text().strip() + ";\n"
-    ) + text
+    text = replace_between_after(
+        text,
+        "vBFC(e,t,n){",
+        "async function v(",
+        "function g(",
+        (ROOT / "hooks/restore.js").read_text() + "\n",
+    )
+    text = replace_once(
+        text,
+        "uiXp(e,t,n){n.r(t),",
+        'uiXp(e,t,n){const __side=n("SYKY"),__sideIdentity=n("SPnB");n.r(t),',
+    )
+    text = replace_once(
+        text,
+        "instructionOverrides:(0,I.s)(e.get(C.M9),e.get(l.Zs,s)??"
+        "v?.settings.model??null),parentNavigationPath:",
+        "assertRequestCurrent:()=>{if(!J.isCurrent())"
+        'throw Error("Side chat creation cancelled")},'
+        'naming:{phase:"placeholder",baseTitle:K},'
+        "instructionOverrides:(0,I.s)(e.get(C.M9),e.get(l.Zs,s)??"
+        "v?.settings.model??null),parentNavigationPath:",
+    )
+    cancel_hook = """let L=async t=>{
+if(t.persistent)return;
+if(null!=t.durable){
+  if(null==j){
+    const params={conversationId:t.conversationId,
+      options:{useAppServerPins:!1,source:"side-chat-cancelled"}};
+    await __scp.loggedRpc("archiveConversation",params,()=>
+      (0,i.V)(e,t.hostId).archiveConversation(t.conversationId,params.options));
+    if(t.hostId==="local")await __scp.forgetCancelled(
+      __side.codexSidePatchStorage(),t.conversationId);
+  }
+  return;
+}
+E?.();let n=await ev(e,t.hostId,t.conversationId);k?.(n)}"""
+    text = replace_between_after(
+        text,
+        "uiXp(e,t,n){",
+        "let L=async t=>{",
+        ",Q=null,Z=null,ee=async()=>",
+        cancel_hook,
+    )
+    identity_check = (
+        "__scp.assertUsable(__side.codexSidePatchStorage(),Q.durable,"
+        "e.get(__sideIdentity.chatGptAuthenticatedAccountId$),"
+        "e.get(__sideIdentity.o8))"
+    )
+    text = replace_once(
+        text,
+        "if(!J.isCurrent())return await L(Q),null;",
+        "if(!J.isCurrent())return await L(Q),null;" + identity_check + ";",
+    )
+    text = replace_once(
+        text,
+        "if(null==Z&&null!=M&&await M(t),!J.isCurrent())",
+        "if(null==Z&&null!=M&&await M(t)," + identity_check + ",!J.isCurrent())",
+    )
+    text = replace_once(
+        text,
+        "if(et(Q)||(J.fail(A),await L(Q))",
+        identity_check + ";if(et(Q)||(J.fail(A),await L(Q))",
+    )
+    text = replace_once(
+        text,
+        "et=(a,i)=>{let c,{conversationId:d,hostId:u}=a,p=null!=a.durable||!0===a.persistent;",
+        "et=(a,i)=>{let c,{conversationId:d,hostId:u}=a,p=null!=a.durable||!0===a.persistent;"
+        "__scp.assertUsable(__side.codexSidePatchStorage(),a.durable,"
+        "e.get(__sideIdentity.chatGptAuthenticatedAccountId$),"
+        "e.get(__sideIdentity.o8));",
+    )
+    text = replace_once(
+        text,
+        "onClose:()=>{c?.();let t=()=>{V.openTab(e,eu,",
+        "onClose:()=>{c?.();"
+        'a.durable?.hostId==="local"&&Promise.resolve('
+        "__scp.hide(__side.codexSidePatchStorage(),d))"
+        ".catch(error=>console.error(__scp.errorJSON(error)));"
+        "let t=()=>{if(a.durable?.hostId===`local`){try{"
+        "__scp.assertUsable(__side.codexSidePatchStorage(),a.durable,"
+        "e.get(__sideIdentity.chatGptAuthenticatedAccountId$),"
+        "e.get(__sideIdentity.o8));}catch{return;}}V.openTab(e,eu,",
+    )
+    text = replace_once(
+        text,
+        "let C=()=>{if(p)return;let t=e.get(V.tabById$,f)?.contentInstance;",
+        "let C=()=>{if(a.durable?.hostId===`local`)"
+        "return __side.codexSidePatchRegisterDeletionTab(e,a.durable);"
+        "if(p)return;let t=e.get(V.tabById$,f)?.contentInstance;",
+    )
+    source[name] = IMPORT + text
 
-    name = "local-conversation-side-chats-9a3e815461eb.js"
-    text = replace_between(
-        source[name], "function de(", "function X(",
-        (ROOT / "hooks/side-list.js").read_text(),
+    # Native summary discovery remains authoritative; compatibility rows are merged into it.
+    name = "async/357959.de4ec41383.js"
+    text = source[name]
+    text = replace_once(
+        text,
+        "S5vq(e,t,n){n.d(t,",
+        'S5vq(e,t,n){const __side=n("SYKY"),__sideIdentity=n("SPnB");n.d(t,',
     )
-    # Native menus portal outside summary clipping; pin their exports and lazy initialization.
-    text = (
-        'import{pWt as __sideReactFactory,o5 as __sideInitButton,CP as __sideInitDialog,'
-        'LP as __sideInitMenu,AP as __sideMenu,FP as __sideMenuItem,'
-        '_P as __sideInitLayout,RZ as __sideInitSlot,sot as __sideInitText,'
-        'Alt as __sideInitContainer,yP as __sideDialog,dP as __sideDialogForm,'
-        'mP as __sideDialogSection,pP as __sideDialogHeader,SP as __sideDialogTitle,'
-        'xP as __sideDialogDescription,fP as __sideDialogActions,i5 as __sideButton,'
-        'dot as __sideToasts}from"./app-shared-601019a330d7.js";\n'
-        'import{codexSidePatchDelete as __sideDelete,'
-        'codexSidePatchRegisterDeletionScope as __sideRegisterDeleteScope}'
-        'from"./app-initial-18b189e867e7.js";\n'
-    ) + text
-    source[name] = text
-    result = {"webview/assets/" + name: value.encode() for name, value in source.items()}
+    summary_selector = """let a$=(0,a.un)(f.GD,({get:e,scope:t})=>{
+let d=e(aF.v).data,n=new Map(d?.children.map(e=>[e.id,e])),r=new Map;
+for(let t of["right","bottom"])
+  for(let n of e((0,eC.getThreadPanelTabController)(t).tabs$))
+    n.tabId.startsWith(aH.y0)&&r.set((0,l.JXB)(n.tabId.slice(aH.y0.length)),n.title);
+const nativeRows=[...new Set([...r.keys(),...n.keys()])].map((s,a)=>{
+  let l=n.get(s),i={hostId:null!=l&&null!=d?d.hostId:e(o.qX,s),threadId:s},
+    c=e(o.ok,i),u=r.get(s)??l?.title??(0,aW.c)(e(n3.g),a+1);
+  return{conversationId:s,tabId:`${aH.y0}${s}`,title:u,
+    isResponseInProgress:c?.isConversationInProgress??l?.isResponseInProgress??!1,
+    hasUnreadTurn:c?.summary.hasUnreadTurn??e(aq.I,i)??l?.hasUnreadTurn??!1,
+    savedThread:null==l?null:i};
+});
+return __scp.summaryRows(e(__side.codexSidePatchRegistryAtom(),void 0),nativeRows,{
+  accountId:e(__sideIdentity.chatGptAuthenticatedAccountId$),
+  userId:e(__sideIdentity.o8),sourceConversationId:t.value.conversationId
+})});"""
+    text = replace_between_after(
+        text,
+        "S5vq(e,t,n){",
+        "let a$=",
+        "var az=",
+        summary_selector,
+    )
+    text = replace_once(
+        text,
+        "n=e=>{let t=(0,eC.KE)(c,e.tabId);",
+        "n=e=>{if(e.deletion)return;if(e.isSavedClosed&&e.durable){"
+        "(0,n4.openLocalConversationSideChat)(c,aO.LocalConversationSideChatTab,{"
+        "durable:e.durable,sourceConversationId:e.durable.sourceConversationId,"
+        "hostId:e.durable.hostId,cwd:null,"
+        "collaborationMode:e.durable.collaborationMode,displayTitle:e.title,intl:u})"
+        ".then(e=>{null!=e&&(0,aB.U)(c,e)}).catch(e=>c.get(tS.Id).danger("
+        "(0,l.Rt_)(e),{errorAnalytics:{toastId:"
+        '"localConversation.sideChat.openFailed"}}));return}'
+        "let t=(0,eC.KE)(c,e.tabId);",
+    )
+    text = replace_between_after(
+        text,
+        "OMEl(e,t,n){",
+        "function d(",
+        "function h(",
+        (ROOT / "hooks/side-list.js").read_text() + "\n",
+    )
+    source[name] = IMPORT + text
+
+    # Composer success and native title cleanup retain native text processing and update one row.
+    name = "async/589850.4264f95e93.js"
+    text = replace_once(
+        source[name],
+        "aVy5(e,t,n){n.d(t,",
+        'aVy5(e,t,n){const __side=n("SYKY");n.d(t,',
+    )
+    text = replace_count(
+        text,
+        "(e.get(p.VT,",
+        "(__side.codexSidePatchIsFirstTurn(e,",
+        2,
+    )
+    text = replace_count(
+        text,
+        ")??0)===0",
+        "))",
+        2,
+    )
+    source[name] = IMPORT + text
+
+    name = "async/563813.7486e43f6b.js"
+    text = replace_once(
+        source[name],
+        "OUOZ(e,t,n){var ",
+        'OUOZ(e,t,n){const __side=n("SYKY");var ',
+    )
+    text = replace_once(
+        text,
+        "function c(e,t,n,o){null==e.get(a.HX,{hostId:t,threadId:n})&&d(e,n,l(o))}",
+        "function c(e,t,n,o){let r=l(o);"
+        "if(__scp.isSavedSide(__side.codexSidePatchStorage(),t,n))"
+        "__side.codexSidePatchNameFirstTurn(e,n,r)"
+        ".catch(error=>console.error(__scp.errorJSON(error)));"
+        "else null==e.get(a.HX,{hostId:t,threadId:n})&&d(e,n,r)}",
+    )
+    source[name] = IMPORT + text
+
+    result = {
+        "webview/assets/" + name: value.encode("utf-8")
+        for name, value in source.items()
+    }
     result[RUNTIME_PATH] = (ROOT / "runtime/persistence.mjs").read_bytes()
     for name, digest in MAIN_ASSETS.items():
         original = read_file(archive, name)
         if sha256_bytes(original) != digest:
             raise ValueError("Unknown original main-process asset: " + name)
         text = replace_once(
-            original.decode(), "updatePersistedAtomState(e,t,r,n){",
+            original.decode("utf-8"),
+            "updatePersistedAtomState(e,t,r,n){",
             "updatePersistedAtomState(e,t,r,n){"
             "let __sideState=__codexSideState.handle(this,e,t,r);"
             "if(__sideState.handled)return;r=__sideState.value;",
         )
         result[name] = (
             'const __codexSideState=require("./codex-native-side-state-v1.cjs");\n' + text
-        ).encode()
-    result[".vite/build/codex-native-side-state-v1.cjs"] = (ROOT / "runtime/main-state.cjs").read_bytes()
+        ).encode("utf-8")
+    result[".vite/build/codex-native-side-state-v1.cjs"] = (
+        ROOT / "runtime/main-state.cjs"
+    ).read_bytes()
     return result
 
 
 def implementation_digest():
-    """Pin templates, adapter and signing policy so a stale or unlaunchable package gets rebuilt."""
+    """Pin templates, adapter and signing policy so stale staged packages are always rebuilt."""
     files = [
-        ROOT / "patchkit/profile.py", ROOT / "runtime/persistence.mjs",
-        ROOT / "hooks/local-create.js", ROOT / "hooks/restore.js", ROOT / "hooks/summary.js",
-        ROOT / "hooks/delete-adapter.js", ROOT / "hooks/side-list.js", ROOT / "runtime/main-state.cjs",
+        ROOT / "patchkit/profile.py",
+        ROOT / "runtime/persistence.mjs",
+        ROOT / "runtime/main-state.cjs",
+        ROOT / "hooks/local-create.js",
+        ROOT / "hooks/restore.js",
+        ROOT / "hooks/delete-adapter.js",
         ROOT / "hooks/title-adapter.js",
-        ROOT / "patchkit/manager.py", ROOT / "patchkit/integrity.py",
+        ROOT / "hooks/side-list.js",
+        ROOT / "hooks/summary.js",
+        ROOT / "patchkit/manager.py",
+        ROOT / "patchkit/integrity.py",
     ]
     return sha256_bytes(b"".join(path.read_bytes() for path in files))

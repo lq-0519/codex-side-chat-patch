@@ -303,58 +303,55 @@ test("native deletion events and KV completion close other windows; manager disp
   } finally { f.dispose(); }
 });
 
-/**
- * Drive the production native-menu handlers with synthetic rows: selecting opens confirmation
- * without deleting or opening the chat, while dismissal preserves native focus restoration.
- */
-test("native menu hands focus to confirmation only on selection and never sends a deletion request", () => {
+/** Native menu conversion opens confirmation without directly sending a deletion request. */
+test("native menu selection opens confirmation and never sends a deletion request", () => {
   const selected = [];
-  const refs = [];
-  let cursor = 0;
-  let initializations = 0;
-  const context = {
-    Q: { jsx: (type, props) => ({ type, props }) },
-    __sideReactFactory: () => ({
-      useRef(initial) { const i = cursor++; return refs[i] ??= { current: initial }; },
-    }),
-    __sideInitMenu() { initializations++; },
-    __sideMenu: "native-menu", __sideMenuItem: "native-menu-item",
-    __sideDelete() { throw Error("menu selection must not delete"); },
+  let deleteCalls = 0;
+  const modules = {
+    zd8w: {},
+    I0j2: { dk: (_, item) => item },
+    ygO2: {}, JNtf: {}, mUDD: {}, SGsN: {},
   };
+  const context = {
+    n: id => modules[id],
+    r: { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
+    u: { x: Object.fromEntries(["List", "ItemButton", "ItemLeading", "ItemLabel"]
+      .map(name => [name, name])) },
+    l: { A: () => ({ formatMessage: () => "Unread updates" }) },
+    o: { A: "side-icon" }, c: { N: "status" }, i: { t: "native-context-menu" },
+    h: row => row.tabId,
+  };
+  modules.SYKY = { codexSidePatchDelete: () => { deleteCalls++; } };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/side-list.js", import.meta.url), "utf8"), context);
   const row = { title: "synthetic", durable: durable() };
-  const render = (item = row) => {
-    cursor = 0;
-    return context.__codexSideChatMenu({ row: item, onDelete: item => selected.push(item) });
-  };
-  const menu = render();
-  let prevented = 0;
-  const event = { preventDefault() { prevented++; } };
-  menu.props.onCloseAutoFocus(event);
-  assert.equal(prevented, 0, "escape/outside dismissal keeps the native trigger focus restore");
-  assert.equal(selected.length, 0);
-  menu.props.children.props.onSelect();
+  const list = context.m({
+    sideChats: [row], onOpen: () => {}, onDelete: item => selected.push(item),
+  });
+  const menu = list.props.children(row);
+  assert.equal(menu.type, "native-context-menu");
+  const [item] = menu.props.getItems();
+  assert.equal(item.id, "delete-thread");
+  item.onSelect();
   assert.strictEqual(selected[0], row);
-  menu.props.onCloseAutoFocus(event);
-  assert.equal(prevented, 1, "menu close cannot take focus from the confirmation's cancel button");
-  menu.props.onCloseAutoFocus(event);
-  assert.equal(prevented, 1, "the focus handoff flag clears after the close event");
-  const retry = render({ ...row, deletion: { phase: "native-deleted" } });
-  assert.equal(retry.props.children.props.children, "重试永久删除");
-  retry.props.children.props.onSelect();
-  assert.equal(selected.length, 2);
-  assert.equal(initializations, 2);
+  assert.equal(deleteCalls, 0);
 });
 
 /** New native attached rows retain their discovery menu, unread label and status indicator. */
 test("side list preserves native attached menus and unread state while plugin rows use permanent deletion", () => {
+  const modules = {
+    zd8w: {},
+    I0j2: { dk: (_, item) => item },
+    ygO2: {}, JNtf: {}, mUDD: {}, SGsN: {},
+  };
   const context = {
-    Q: { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
-    N: Object.fromEntries(["List", "ItemButton", "ItemLeading", "ItemLabel", "ItemMeta"]
-      .map(name => [name, name])),
-    n: () => ({ formatMessage: () => "Unread updates" }),
-    D: "side-icon", A: "status", a: "native-context-menu", X: row => row.tabId,
+    n: id => modules[id],
+    r: { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
+    u: { x: Object.fromEntries(["List", "ItemButton", "ItemLeading", "ItemLabel"]
+      .map(name => [name, name])) },
+    l: { A: () => ({ formatMessage: () => "Unread updates" }) },
+    o: { A: "side-icon" }, c: { N: "status" }, i: { t: "native-context-menu" },
+    h: row => row.tabId,
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/side-list.js", import.meta.url), "utf8"), context);
@@ -364,7 +361,7 @@ test("side list preserves native attached menus and unread state while plugin ro
     isResponseInProgress: true, getMenuItems: () => ["native-rename", "native-archive"],
   };
   const plugin = { tabId: "sidechat:plugin", title: "Plugin", durable: durable() };
-  const list = context.fe({
+  const list = context.m({
     sideChats: [native, plugin], onOpen: row => opened.push(row), onDelete: () => {},
   });
   const attached = list.props.children(native);
@@ -372,13 +369,13 @@ test("side list preserves native attached menus and unread state while plugin ro
   assert.strictEqual(attached.props.getItems, native.getMenuItems);
   const button = attached.props.children;
   assert.equal(button.props["aria-description"], "Unread updates");
-  assert.equal(button.props.children[2].props.children.props.statusState.unread, true);
-  assert.equal(button.props.children[2].props.children.props.statusState.type, "loading");
+  assert.equal(button.props.children[2].props.statusState.unread, true);
+  assert.equal(button.props.children[2].props.statusState.type, "loading");
   button.props.onClick();
   assert.strictEqual(opened[0], native);
   const saved = list.props.children(plugin);
-  assert.equal(saved.type, "div");
-  assert.strictEqual(saved.props.children[1].type, context.__codexSideChatMenu);
+  assert.equal(saved.type, "native-context-menu");
+  assert.equal(saved.props.getItems()[0].id, "delete-thread");
 });
 
 /**
@@ -391,26 +388,34 @@ test("actual confirmation defaults to cancel, cancellation sends nothing, double
   const request = deferred();
   let calls = 0;
   let closed = 0;
-  const context = {
-    Q: { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
-    __sideReactFactory: () => ({
+  const react = {
       useState(initial) {
         const i = cursor++;
         if (!(i in values)) values[i] = initial;
         return [values[i], updated => { values[i] = updated; }];
       },
       useRef(initial) { const i = cursor++; return values[i] ??= { current: initial }; },
-    }),
-    __sideDelete: () => { calls++; return request.promise; },
-    __sideInitButton() {}, __sideInitDialog() {}, __sideInitLayout() {},
-    __sideInitSlot() {}, __sideInitText() {}, __sideInitContainer() {},
-    __sideDialog: "dialog", __sideDialogForm: "form", __sideDialogSection: "section",
-    __sideDialogHeader: "header", __sideDialogTitle: "title", __sideDialogDescription: "description",
-    __sideDialogActions: "actions", __sideButton: "button",
+  };
+  const modules = {
+    zd8w: react,
+    I0j2: { dk: (_, item) => item },
+    ygO2: { $: "button" },
+    JNtf: { lG: "dialog" },
+    mUDD: { R4: "form", OO: "section", c7: "header", Es: "actions" },
+    SGsN: { Id: "toasts" },
+    SYKY: { codexSidePatchDelete: () => { calls++; return request.promise; } },
+  };
+  const context = {
+    n: id => modules[id],
+    r: { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/side-list.js", import.meta.url), "utf8"), context);
-  const props = { scope: {}, row: { title: "synthetic", durable: durable() }, onClose: () => { closed++; } };
+  const props = {
+    scope: { get: () => ({ info() {} }) },
+    row: { title: "synthetic", durable: durable() },
+    onClose: () => { closed++; },
+  };
   const render = () => { cursor = 0; return context.__codexSideDeleteDialog(props); };
   let dialog = render();
   let buttons = dialog.props.children.props.children[2].props.children.props.children;
@@ -470,13 +475,15 @@ test("actual native cleanup bypasses close callbacks and undo while preserving p
       rows.set(target, rows.get(target).filter(tab => tab.tabId !== id)); closed.push(id);
     };
   }
-  const context = {
-    LU: target => controllers.get(target),
-    /** Match the native relation-removal helper's scope/parent/child argument contract. */
-    Vvi: (targetScope, parent, child) =>
-      targetScope.set(relationFamily, parent, values => values.filter(id => id !== child)),
-    t_i: (_, parent, ids) => { assert.equal(parent, "parent"); layoutIds.push(...ids); },
+  const modules = {
+    XXJV: { getThreadPanelTabController: target => controllers.get(target) },
+    Ioto: { ux: (targetScope, parent, child) =>
+      targetScope.set(relationFamily, parent, values => values.filter(id => id !== child)) },
+    Exwq: { V1: (_, parent, ids) => {
+      assert.equal(parent, "parent"); layoutIds.push(...ids);
+    } },
   };
+  const context = { n: id => modules[id] };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/delete-adapter.js", import.meta.url), "utf8")
     .replaceAll("export function", "function"), context);
@@ -686,14 +693,22 @@ test("native title hook maps entity keys to turn IDs and follows right/bottom ta
         return tabs.get(key);
       },
     };
-    const context = {
-      __scp: runtime, codexSidePatchStorage: () => f.storage,
-      p_: "account", K_: "user", jw: "canonical", Pw: "turn-id", fEn: "native-count",
-      LU: target => controllers.get(target),
-      I_: (key, _, callback) => {
+    const modules = {
+      SPnB: { chatGptAuthenticatedAccountId$: "account", o8: "user" },
+      tl5a: { VT: "native-count" },
+      Dgwo: { V: () => ({ getConversation: () => ({
+        turns: [{ turnId: "parent-turn" }],
+      }) }) },
+      XXJV: { getThreadPanelTabController: target => controllers.get(target) },
+      kpIY: { w5: (key, _, callback) => {
         assert.equal(key, runtime.REGISTRY_KEY);
         subscriptions.add(callback); return () => subscriptions.delete(callback);
-      },
+      } },
+    };
+    const context = {
+      __scp: runtime, codexSidePatchStorage: () => f.storage,
+      n: id => modules[id],
+      P: conversation => { canonicalReads++; return conversation.turns; },
       __codexSideDeleteBinding: () => ({ binding: {
         register: () => () => released.push("delete registration"),
       } }),

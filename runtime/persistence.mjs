@@ -3,6 +3,8 @@
  * The supplied storage is Codex's existing persistent KV, never a second transcript store.
  */
 export const REGISTRY_KEY = "codex-native-side-chats-v1";
+/** Durable native-main tombstones block stale layout descriptors after registry removal. */
+export const DELETED_KEY = "codex-native-side-chat-deleted-ids-v1";
 /** Reuse the empty native index snapshot across ordinary local-chat reads. */
 const EMPTY_REGISTRY = Object.freeze({ version: 1, records: Object.freeze({}) });
 
@@ -206,6 +208,17 @@ export function forgetCancelled(storage, conversationId) {
 export function isSavedSide(storage, hostId, conversationId) {
   if (hostId !== "local") return false;
   return Boolean(readRegistry(storage).records[conversationId]);
+}
+
+/**
+ * Recognize both current and historical plugin descriptors. Tombstones keep deleted old layouts
+ * guarded after their registry row has been removed by the completed native deletion transaction.
+ */
+export function isManagedSide(storage, durable) {
+  if (durable?.hostId !== "local" || typeof durable.conversationId !== "string") return false;
+  return durable.patchVersion === 1 ||
+    readRegistry(storage).records[durable.conversationId] != null ||
+    storage.readValue(DELETED_KEY)?.[durable.conversationId] != null;
 }
 
 /**
@@ -624,7 +637,7 @@ export function guardSideRequest(storage, hostId, method, params) {
         "thread-follower-steer-turn"].includes(method)) return;
   const id = params?.threadId ?? params?.conversationId;
   if (readRegistry(storage).records[id]?.deletion ||
-      storage.readValue("codex-native-side-chat-deleted-ids-v1")?.[id]) {
+      storage.readValue(DELETED_KEY)?.[id]) {
     throw Error("The side chat is being permanently deleted");
   }
 }

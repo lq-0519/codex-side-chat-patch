@@ -1,149 +1,160 @@
-/** Replace only the native Side chats section, preserving its list and summary components. */
-function de({ sideChats, onOpen, scope, error }) {
-  const React = __sideReactFactory();
-  const [selected, setSelected] = React.useState(null);
-  React.useEffect(() => __sideRegisterDeleteScope(scope), [scope]);
+const __sideReact = n("zd8w");
+const __sideMenuItems = n("I0j2");
+const __sideButton = n("ygO2");
+const __sideDialog = n("JNtf");
+const __sideDialogLayout = n("mUDD");
+const __sideToasts = n("SGsN");
+
+/** Extend build 24614's native list only for compatibility-registry rows. */
+function d(e) {
+  const { sideChats, onOpen, error } = e;
+  const [selected, setSelected] = __sideReact.useState(null);
+  const scope = (0, n("y5DF").gh)(n("Oj9r").GD);
+  __sideReact.useEffect(
+    () => n("SYKY").codexSidePatchRegisterDeletionScope(scope),
+    [scope],
+  );
   if (sideChats.length === 0 && selected == null && error == null) return null;
-  return Q.jsxs(Q.Fragment, { children: [
-    Q.jsxs(N.Section, {
-      sectionKey: `side-chats`,
-      title: Q.jsx(g, {
-        id: `codex.localConversation.sideChats.title`, defaultMessage: `Side chats`,
-        description: `Title for the side chats section in the chat summary side panel`,
+  return r.jsxs(r.Fragment, {
+    children: [
+      r.jsxs(u.x.Section, {
+        sectionKey: "side-chats",
+        title: r.jsx(a.A, {
+          id: "codex.localConversation.sideChats.title",
+          defaultMessage: "Side chats",
+          description: "Title for the side chats section in the chat summary side panel",
+        }),
+        titleSuffix: r.jsx(u.x.SectionCount, { count: sideChats.length }),
+        children: [
+          error,
+          r.jsx(m, { sideChats, onOpen, onDelete: setSelected }),
+        ],
       }),
-      titleSuffix: Q.jsx(N.SectionCount, { count: sideChats.length }),
-      children: [error, Q.jsx(fe, { sideChats, onOpen, onDelete: setSelected })],
-    }),
-    selected == null ? null : Q.jsx(__codexSideDeleteDialog, {
-      scope, row: selected, onClose: () => setSelected(null),
-    }),
-  ] });
+      selected == null ? null : r.jsx(__codexSideDeleteDialog, {
+        scope,
+        row: selected,
+        onClose: () => setSelected(null),
+      }),
+    ],
+  });
 }
 
-/** Preserve native unread/status/context menus; plugin records gain a separate deletion menu. */
-function fe({ sideChats, onOpen, onDelete }) {
-  const intl = n();
-  return Q.jsx(N.List, {
-    items: sideChats, getKey: X,
+/** Keep native row rendering and context menus; add one verified destructive action when needed. */
+function m(e) {
+  const { sideChats, onOpen, onDelete } = e;
+  const intl = (0, l.A)();
+  return r.jsx(u.x.List, {
+    items: sideChats,
+    getKey: h,
+    listClassName:
+      "-me-1 group-data-[summary-panel-variant=dynamic-isle]/summary-panel:" +
+      "group-data-[summary-panel-density=default]/summary-panel:me-0",
     children: (row) => {
-      const button = Q.jsxs(N.ItemButton, {
-          className: `min-w-0 flex-1`, disabled: row.deletion != null,
-          "aria-busy": row.deletion != null || row.isResponseInProgress,
-          "aria-label": row.title,
-          "aria-description": row.hasUnreadTurn ? intl.formatMessage({
-            id: `sidebar.navItem.unread`, defaultMessage: `Unread updates`,
-            description: `Accessible description for a navigation item with unread updates`,
-          }) : void 0,
-          onClick: () => { if (!row.deletion) onOpen(row); },
-          children: [
-            Q.jsx(N.ItemLeading, {
-              children: Q.jsx(D, {}),
-            }),
-            Q.jsx(N.ItemLabel, {
-              children: row.deletion ? `${row.title} · 删除中` : row.title,
-            }),
-            Q.jsx(N.ItemMeta, {
-              variant: `section-status`,
-              children: Q.jsx(A, { statusState: {
-                type: row.deletion || row.isResponseInProgress ? `loading` : `idle`,
-                unread: row.hasUnreadTurn,
-              } }),
-            }),
-          ],
+      const button = r.jsxs(u.x.ItemButton, {
+        "aria-busy": row.deletion != null || row.isResponseInProgress,
+        "aria-label": row.title,
+        "aria-description": row.hasUnreadTurn ? intl.formatMessage({
+          id: "sidebar.navItem.unread",
+          defaultMessage: "Unread updates",
+          description: "Accessible description for a navigation item with unread updates",
+        }) : void 0,
+        disabled: row.deletion != null,
+        onClick: () => {
+          if (row.deletion == null) onOpen(row);
+        },
+        children: [
+          r.jsx(u.x.ItemLeading, { children: r.jsx(o.A, {}) }),
+          r.jsx(u.x.ItemLabel, {
+            className: "translate-y-px",
+            children: row.deletion == null ? row.title : `${row.title} · 删除中`,
+          }),
+          r.jsx(c.N, {
+            statusState: {
+              type: row.deletion != null || row.isResponseInProgress ? "loading" : "idle",
+              unread: row.hasUnreadTurn,
+            },
+          }),
+        ],
       });
-      if (row.durable == null) return row.getMenuItems == null ? button :
-        Q.jsx(a, { getItems: row.getMenuItems, children: button });
-      return Q.jsxs(`div`, {
-        className: `flex min-w-0 items-center gap-1`,
-        children: [button, Q.jsx(__codexSideChatMenu, { row, onDelete })],
-      });
+      let getItems = row.getMenuItems;
+      if (row.durable != null) {
+        getItems = () => [
+          (0, __sideMenuItems.dk)(void 0, {
+            id: "delete-thread",
+            tone: "destructive",
+            selectAfterClose: true,
+            onSelect: () => onDelete(row),
+          }),
+        ];
+      }
+      return getItems == null ? button : r.jsx(i.t, { getItems, children: button });
     },
   });
 }
 
-/**
- * Native menus portal outside the summary's clipping and scroll containers in both pinned and
- * floating layouts. Keep the trigger beside the open-chat button and let the native component
- * handle positioning, keyboard navigation, outside dismissal and focus restoration.
- */
-function __codexSideChatMenu({ row, onDelete }) {
-  const React = __sideReactFactory();
-  /** Suppress only the menu-to-dialog focus restore so the confirmation's cancel button keeps focus. */
-  const openingConfirmation = React.useRef(false);
-  __sideInitMenu();
-  return Q.jsx(__sideMenu, {
-    align: `end`, side: `bottom`, sideOffset: 4,
-    triggerButton: Q.jsx(`button`, {
-      type: `button`,
-      className: `no-drag shrink-0 cursor-pointer rounded px-2 py-1 hover:bg-token-surface-secondary`,
-      "aria-label": `${row.title}的操作`, children: `⋯`,
-    }),
-    onCloseAutoFocus: (event) => {
-      if (!openingConfirmation.current) return;
-      openingConfirmation.current = false;
-      event.preventDefault();
-    },
-    children: Q.jsx(__sideMenuItem, {
-      tone: `destructive`,
-      onSelect: () => {
-        openingConfirmation.current = true;
-        onDelete(row);
-      },
-      children: row.deletion ? `重试永久删除` : `永久删除`,
-    }),
-  });
-}
-
-/** Use Codex's native modal and destructive buttons; cancellation is the default focus target. */
+/** Use Codex's native compact dialog and destructive button for explicit confirmation. */
 function __codexSideDeleteDialog({ scope, row, onClose }) {
-  const React = __sideReactFactory();
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState(null);
-  const submitting = React.useRef(false);
-  /** The ref closes the same-frame duplicate-submit window before React renders its busy state. */
+  const [busy, setBusy] = __sideReact.useState(false);
+  const [error, setError] = __sideReact.useState(null);
+  const submitting = __sideReact.useRef(false);
   const submit = async (event) => {
     event.preventDefault();
     if (submitting.current) return;
     submitting.current = true;
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     try {
-      await __sideDelete(scope, row.durable);
+      await n("SYKY").codexSidePatchDelete(scope, row.durable);
       onClose();
-      scope.get(__sideToasts).info(`侧边聊天已永久删除`);
+      scope.get(__sideToasts.Id).info("侧边聊天已永久删除");
     } catch (caught) {
-      submitting.current = false; setBusy(false);
+      submitting.current = false;
+      setBusy(false);
       setError(caught?.message ?? String(caught));
     }
   };
-  __sideInitButton(); __sideInitDialog(); __sideInitLayout();
-  __sideInitSlot(); __sideInitText(); __sideInitContainer();
-  return Q.jsx(__sideDialog, {
-    open: true, size: `compact`,
-    onOpenChange: (open) => { if (!open && !submitting.current) onClose(); },
-    children: Q.jsxs(__sideDialogForm, {
-      as: `form`, className: `select-none`, onSubmit: submit,
+  return r.jsx(__sideDialog.lG, {
+    open: true,
+    size: "compact",
+    onOpenChange: (open) => {
+      if (!open && !submitting.current) onClose();
+    },
+    children: r.jsxs(__sideDialogLayout.R4, {
+      as: "form",
+      className: "select-none",
+      onSubmit: submit,
       children: [
-        Q.jsx(__sideDialogSection, {
-          children: Q.jsx(__sideDialogHeader, {
-            title: Q.jsx(__sideDialogTitle, { children: `永久删除“${row.title}”？` }),
-            subtitle: Q.jsx(__sideDialogDescription, {
-              children: `此侧边聊天及其子代理聊天将永久删除，无法撤销；正在进行的回复也会停止。`,
-            }),
+        r.jsx(__sideDialogLayout.OO, {
+          children: r.jsx(__sideDialogLayout.c7, {
+            title: `永久删除“${row.title}”？`,
+            subtitle: "此侧边聊天及其子代理聊天将永久删除，无法撤销；正在进行的回复也会停止。",
           }),
         }),
-        error == null ? null : Q.jsx(`p`, {
-          role: `alert`, className: `px-4 text-sm text-token-text-error`, children: error,
+        error == null ? null : r.jsx("p", {
+          role: "alert",
+          className: "px-4 text-sm text-token-text-error",
+          children: error,
         }),
-        Q.jsx(__sideDialogSection, {
-          children: Q.jsxs(__sideDialogActions, { children: [
-            Q.jsx(__sideButton, {
-              type: `button`, autoFocus: true, color: `outline`, disabled: busy,
-              onClick: onClose, children: `取消`,
-            }),
-            Q.jsx(__sideButton, {
-              type: `submit`, color: `danger`, loading: busy, disabled: busy, children: `永久删除`,
-            }),
-          ] }),
+        r.jsx(__sideDialogLayout.OO, {
+          children: r.jsxs(__sideDialogLayout.Es, {
+            children: [
+              r.jsx(__sideButton.$, {
+                type: "button",
+                autoFocus: true,
+                color: "secondary",
+                disabled: busy,
+                onClick: onClose,
+                children: "取消",
+              }),
+              r.jsx(__sideButton.$, {
+                type: "submit",
+                color: "danger",
+                loading: busy,
+                disabled: busy,
+                children: "永久删除",
+              }),
+            ],
+          }),
         }),
       ],
     }),

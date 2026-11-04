@@ -1,14 +1,13 @@
 /**
- * Merge plugin discovery with build 24141's original rows, including native attached children,
- * both panel targets, unread state and menu metadata. The KV family requires an explicit key.
- * Route scope supplies the parent ID; root signals supply the signed-in account and user.
+ * Merge compatibility-registry rows with build 24614's native attached-thread discovery.
+ * Native open rows retain unread state and menu metadata; only closed historical rows are added.
  */
 ({ get, scope }, nativeRows) => __scp.summaryRows(
-  get(__sideRegistryAtom(), void 0),
+  get(n("SYKY").codexSidePatchRegistryAtom(), void 0),
   nativeRows,
   {
-    accountId: get(__sideAccount),
-    userId: get(__sideUser),
+    accountId: get(n("SPnB").chatGptAuthenticatedAccountId$),
+    userId: get(n("SPnB").o8),
     sourceConversationId: scope.value.conversationId,
   },
 )

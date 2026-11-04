@@ -348,8 +348,8 @@ def stage(app, output, identity="-", allow_updated_version=False, node="node"):
         "com.apple.developer.team-identifier", "keychain-access-groups",
         "com.apple.security.application-groups",
         "com.apple.developer.aps-environment",
-        # Build 24141 adds Universal Links; its vendor provisioning profile cannot authorize
-        # associated domains for our fixed local certificate, so taskgated rejects launch.
+        # Vendor Universal Links cannot be authorized by our fixed local certificate, so
+        # retaining associated domains makes taskgated reject the re-signed application.
         "com.apple.developer.associated-domains",
         "com.apple.developer.usernotifications.communication",
     ):

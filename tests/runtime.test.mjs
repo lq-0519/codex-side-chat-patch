@@ -43,6 +43,8 @@ test("closed side chats survive restart and reopen by original ID without crossi
   assert.equal(persistence.summaryRows(restartedIndex, [rows[0]], identity).length, 1);
   assert.equal(persistence.isSavedSide(storage, "local", "side-one"), true);
   assert.equal(persistence.isSavedSide(storage, "remote-host", "side-one"), false);
+  assert.equal(persistence.isManagedSide(storage, rows[0].durable), true);
+  assert.equal(persistence.isManagedSide(storage, { ...rows[0].durable, hostId: "remote" }), false);
 });
 
 test("hot reads validate only new native snapshots and reject newly published corruption", () => {
@@ -166,8 +168,11 @@ test("actual summary hook reads the native KV family with a key and preserves re
   const accountSignal = {}, userSignal = {};
   let account = "account-one";
   const context = {
-    __scp: persistence, __sideRegistryAtom: () => registryFamily,
-    __sideAccount: accountSignal, __sideUser: userSignal,
+    __scp: persistence,
+    n: (id) => ({
+      SYKY: { codexSidePatchRegistryAtom: () => registryFamily },
+      SPnB: { chatGptAuthenticatedAccountId$: accountSignal, o8: userSignal },
+    })[id],
   };
   const selector = vm.runInNewContext(
     fs.readFileSync(new URL("../hooks/summary.js", import.meta.url), "utf8"), context,
@@ -293,13 +298,24 @@ function creationFixture(hostId = "local", attached = false) {
   let account = "account-one";
   let pending = true;
   const context = {
-    __scp: persistence, __sideStorage: () => storage,
-    __sideAccount: "account", __sideUser: "user",
-    a: () => false, Pt: async () => ["/empty-workspace"],
-    Mt: async () => ({ instructions: "Native instructions" }),
-    Lt: () => false, Ze: "detail", Et: "Untrusted parent is reference only",
-    Je: "history", xe: "host", Pe: "gate", s: () => attached,
-    sn: "Scheduled updates cannot run in temporary side chats",
+    __scp: persistence,
+    __side: { codexSidePatchStorage: () => storage },
+    __sideIdentity: {
+      chatGptAuthenticatedAccountId$: "account",
+      o8: "user",
+    },
+    r: { ZJQ: () => false },
+    h: { z: async () => null },
+    d: { c: (_, result) => Error(result.status) },
+    c: { A: async () => ["/empty-workspace"] },
+    l: { Y: async () => ({ instructions: "Native instructions" }) },
+    u: { c: () => false },
+    p: { e2: "detail" },
+    i: { sX: "history" },
+    a: { JF: () => attached },
+    s: { B: "host" },
+    m: { JW: "gate" },
+    f: { R: "Untrusted parent is reference only" },
     Ce: async (_, host, params) => {
       requests.push({ method: "fork", host, params });
       return {
@@ -307,19 +323,20 @@ function creationFixture(hostId = "local", attached = false) {
         synchronization: { status: "complete" },
       };
     },
-    U: () => ({
+    __sideManager: { V: () => ({
       sendRequest: async (method, params) => {
         requests.push({ method, params });
         return { data: [{ id: "parent-turn" }], nextCursor: null };
       },
       archiveConversation: async (id, options) => requests.push({ method: "archive", id, options }),
-    }),
+    }) },
     Error, Promise,
   };
+  context.o = { y: (...args) => context.Ce(...args) };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/local-create.js", import.meta.url), "utf8"), context);
   return {
-    invoke: () => context.an({
+    invoke: () => context.v({
       scope: { get: (atom) => atom === "account" ? account : atom === "user" ? "user-one" :
         atom === "history" ? "paginated" : atom === "gate" ? attached : false },
       threadSource: "user",
@@ -395,33 +412,38 @@ function restorationFixture(changeAt) {
   let account = "account-one";
   const requests = [];
   const storage = storageFixture();
-  persistence.remember(storage, durable(), []);
+  const descriptor = { ...durable(), patchVersion: 1 };
+  persistence.remember(storage, descriptor, []);
   const context = {
-    __scp: persistence, n: () => false, v: () => true,
-    __sideStorage: () => storage, __sideAccount: "account", __sideUser: "user",
-    U: (_, descriptor) => persistence.assertIdentity(descriptor, account, "user-one"),
-    O: async () => {
+    __scp: persistence,
+    __side: { codexSidePatchStorage: () => storage },
+    a: { iwv: "local", ZJQ: () => false, Rt_: error => error.message },
+    d: { chatGptAuthenticatedAccountId$: "account", o8: "user" },
+    g: (_, descriptor) => persistence.assertIdentity(descriptor, account, "user-one"),
+    l: { A: async () => {
       if (changeAt === "root-error") throw Error("Native workspace access failed");
       if (changeAt === "roots") account = "account-two";
       if (changeAt === "delete-roots") persistence.forgetCancelled(storage, "side-one");
       return ["/empty-workspace"];
-    },
-    T: (_, host) => ({
+    } },
+    s: { V: (_, host) => ({
       resumeConversation: async (params, options) => {
         requests.push({ host, params, options });
         if (changeAt === "resume") account = "account-two";
         if (changeAt === "delete-resume") persistence.forgetCancelled(storage, "side-one");
         return { status: "ready" };
       },
-    }),
-    p: Error, i: (error) => error.message, Error,
+    }) },
+    i: { jQ: () => true },
+    o: { uZ: Error },
+    Error,
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/restore.js", import.meta.url), "utf8"), context);
   return {
-    invoke: () => context.H({
+    invoke: () => context.v({
       get: (key) => key === "account" ? account : "user-one",
-    }, durable(), "parent-one", "/thread/parent-one"),
+    }, descriptor, "parent-one", "/thread/parent-one"),
     requests, storage,
   };
 }

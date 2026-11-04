@@ -38,7 +38,7 @@ class AutomaticStartup(unittest.TestCase):
         self.mocks = [
             patch.dict(manager.PROFILE, {"asar_sha256": self.original_hash}),
             patch.object(manager, "ASSETS", {
-                Path(name).name: archive.sha256_bytes(data)
+                name.removeprefix("webview/assets/"): archive.sha256_bytes(data)
                 for name, data in self.assets.items()
                 if name.startswith("webview/assets/") and not name.endswith("unrelated.js")
             }),
