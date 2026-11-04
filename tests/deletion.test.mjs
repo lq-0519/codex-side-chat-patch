@@ -63,7 +63,11 @@ function fixture() {
     };
     const storage = runtime.mutationStorage({
       readValue: (key) => cache.get(key),
-      publish: (key, updated) => state.handle(context, window, key, updated),
+      publish(key, updated) {
+        cache.set(key, structuredClone(updated));
+        for (const callback of listeners.get(key) ?? []) callback(updated);
+        return state.handle(context, window, key, updated);
+      },
       subscribe(key, callback) {
         const set = listeners.get(key) ?? new Set();
         set.add(callback); listeners.set(key, set);
@@ -98,6 +102,21 @@ function operation(storage, descriptor = durable(), send = async () => ({})) {
     requests, cleaned,
   };
 }
+
+test("mutation commands never replace the renderer's stable registry snapshot", async () => {
+  const f = fixture();
+  try {
+    const observed = [];
+    f.listeners.set(state.REGISTRY_KEY, new Set([
+      (value) => observed.push(structuredClone(value)),
+    ]));
+    await runtime.remember(f.storage, durable(), ["parent-turn"]);
+    assert.equal(observed.length, 1);
+    assert.equal(observed[0].version, 1);
+    assert.equal(observed[0].records["delete-side"].durable.conversationId, "delete-side");
+    assert.equal([...f.cache.keys()].some(key => key.startsWith(state.MUTATION_PREFIX)), false);
+  } finally { f.dispose(); }
+});
 
 test("native RPC waits for a disk-confirmed claim; duplicate submits share the same operation", async () => {
   const f = fixture();

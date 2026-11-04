@@ -412,6 +412,11 @@ export async function inheritedBoundary(sendRequest, conversationId, assertCurre
 
 /** Replies are ephemeral signals; no receipt keys are retained in the renderer KV cache. */
 const ACK_PREFIX = "codex-native-side-chat-ack-v1:";
+/**
+ * Mutation commands use request-scoped transient keys so the durable registry key always contains
+ * a validated snapshot. Native KV publication is renderer-visible before main-process interception.
+ */
+export const MUTATION_PREFIX = "codex-native-side-chat-mutation-v1:";
 /** One active deletion per native thread per renderer; shared main state owns cross-window claims. */
 const activeDeletions = new Map();
 /** Attach one listener to each local manager, with parent scope bindings for live tab cleanup. */
@@ -430,6 +435,7 @@ export function mutationStorage({ readValue, publish, subscribe, clearReply, tim
     commit(mutation) {
       const requestId = crypto.randomUUID();
       const operationId = mutation.operationId ?? crypto.randomUUID();
+      const commandKey = MUTATION_PREFIX + requestId;
       return new Promise((resolve, reject) => {
         let stop;
         let timer;
@@ -438,6 +444,7 @@ export function mutationStorage({ readValue, publish, subscribe, clearReply, tim
           clearTimeout(timer);
           stop?.();
           clearReply?.(ACK_PREFIX + requestId);
+          clearReply?.(commandKey);
           error == null ? resolve(value) : reject(error);
         };
         stop = subscribe(ACK_PREFIX + requestId, (ack) => {
@@ -452,7 +459,7 @@ export function mutationStorage({ readValue, publish, subscribe, clearReply, tim
           { sideMutationUncertain: true },
         )), timeoutMs);
         try {
-          publish(REGISTRY_KEY, {
+          publish(commandKey, {
             kind: "codex-side-mutation-v1", requestId,
             mutation: { ...mutation, operationId },
           });

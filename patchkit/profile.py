@@ -89,6 +89,31 @@ def build_replacements(archive):
         'codexSidePatchStorage(),e,e.turnHistory?.kind==="canonical"?'
         '(0,w.H)(n,e.turns,{policy:t}):n)}',
     )
+    # The unified timeline owns the visible transcript in build 24614. Subscribe its selector to
+    # the native registry family, then remove inherited side-fork turns with aligned metadata.
+    text = replace_once(
+        text,
+        't3Ye(e,t,n){var r=n("SYKY"),',
+        't3Ye(e,t,n){var __side=n("SYKY"),r=n("SYKY"),',
+    )
+    unified_options = (
+        "conversationRequests:s,isAeonThread:o,"
+        "showPartialHistoryGaps:o&&p.hostId===d.iwv,"
+        "mergeBerryDisplayTurnsForPIA:!1,preserveServerUserMessages:o||!1,"
+        "conversationTurns:N,hasConversation:a,"
+        "historyEntriesByTurnIndex:k?E:void 0,historyTimeline:k?v??void 0:void 0,"
+        "isBackgroundSubagentsEnabled:t,hideReactionInputs:!1,"
+        "inheritedHistoryPositionKeys:L,parentConversationTurns:F,parentHistoryComplete:D,"
+        "childCreatedAt:n(h.Kz,e),subagentParentThreadId:u,"
+        "turnEntityKeys:w?.map(({entityKey:e})=>e)"
+    )
+    text = replace_once(
+        text,
+        "return M({" + unified_options + "})})",
+        'p.hostId==="local"&&n(__side.codexSidePatchRegistryAtom(),void 0);'
+        "return M(__scp.presentationOptions(__side.codexSidePatchStorage(),"
+        "{id:e,hostId:p.hostId},{" + unified_options + "}))})",
+    )
     text = replace_once(
         text,
         "shouldSurfaceRecentConversation(e){return!this.isConversationSuppressed(e.id)&&"

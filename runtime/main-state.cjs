@@ -6,6 +6,11 @@ const REGISTRY_KEY = "codex-native-side-chats-v1";
 const TOMBSTONE_KEY = "codex-native-side-chat-deleted-ids-v1";
 /** Replies use the existing persisted-atom transport without persisting per-request receipts. */
 const ACK_PREFIX = "codex-native-side-chat-ack-v1:";
+/**
+ * Renderer commands are isolated from the durable registry under request-scoped transient keys.
+ * This prevents native optimistic publication from exposing command envelopes to registry readers.
+ */
+const MUTATION_PREFIX = "codex-native-side-chat-mutation-v1:";
 /** Native saved panel routes are the only other keys modified by deletion completion. */
 const LAYOUT_PREFIX = "thread-tab-routes-v1:";
 /** Serialize mutations per native store, including overlapping windows and disk flushes. */
@@ -273,8 +278,8 @@ function mutate(state, mutation) {
 }
 
 /**
- * Handle only the patch's registry channel. Commit success is acknowledged after flushOrThrow;
- * a failed flush keeps the conservative in-memory deletion marker for a safe later retry.
+ * Handle the patch's stable registry and request-scoped mutation channels. Commit success is
+ * acknowledged after flushOrThrow; a failed flush keeps the conservative in-memory deletion marker.
  * Late layout snapshots are also filtered against pending deletions and durable tombstones.
  */
 function handle(context, sender, key, value) {
@@ -283,12 +288,14 @@ function handle(context, sender, key, value) {
     const state = store.get("electron-persisted-atom-state") ?? {};
     return { handled: false, value: protectLayout(value, state) };
   }
-  if (key !== REGISTRY_KEY) return { handled: false, value };
-  if (value?.kind !== "codex-side-mutation-v1") {
+  if (key === REGISTRY_KEY) {
     context.broadcastPersistedAtomUpdate(sender, key,
       store.get("electron-persisted-atom-state")?.[key]);
     return { handled: true };
   }
+  if (!key.startsWith(MUTATION_PREFIX)) return { handled: false, value };
+  if (value?.kind !== "codex-side-mutation-v1" ||
+      key !== MUTATION_PREFIX + value.requestId) return { handled: true };
   const mutation = value.mutation;
   const replyId = value.requestId;
   /** Queue rejection is consumed so an unsuccessful operation cannot block later mutations. */
@@ -355,4 +362,6 @@ function handle(context, sender, key, value) {
   return { handled: true };
 }
 
-module.exports = { handle, mutate, filterLayout, REGISTRY_KEY, TOMBSTONE_KEY, ACK_PREFIX };
+module.exports = {
+  handle, mutate, filterLayout, REGISTRY_KEY, TOMBSTONE_KEY, ACK_PREFIX, MUTATION_PREFIX,
+};
