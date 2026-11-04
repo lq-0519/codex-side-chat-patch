@@ -37,7 +37,7 @@ function sameOwner(a, b) {
 }
 
 /**
- * Allocate a display name only at creation or first successful send, inside the native queue.
+ * Allocate a display name at creation, first successful send or explicit rename in the native queue.
  * Hidden and deleting siblings reserve their names until permanent cleanup. Parent/account/user
  * boundaries prevent unrelated lists from consuming suffixes; existing legacy titles also count.
  */
@@ -191,11 +191,16 @@ function mutate(state, mutation) {
         hidden: false, createdAt: previous?.createdAt ?? Date.now(), updatedAt: Date.now(),
       };
       break;
+    case "rename":
     case "name-first-turn":
       if (previous == null || previous.deletion || Object.hasOwn(tombstones, id)) {
         throw Error("The side chat was deleted or is being deleted");
       }
-      if (previous.naming?.phase === "content") break;
+      if (mutation.action === "name-first-turn" && previous.naming?.phase === "content") break;
+      if (mutation.action === "rename" &&
+          (typeof mutation.title !== "string" || !mutation.title.trim())) {
+        throw Error("Missing side-chat title");
+      }
       if (mutation.title != null && typeof mutation.title !== "string") {
         throw Error("Invalid side-chat content title");
       }
@@ -206,7 +211,7 @@ function mutate(state, mutation) {
           title: mutation.title?.trim()
             ? uniqueTitle(records, durable, mutation.title, "content") : previous.durable.title,
         },
-        /** A successful textless first turn keeps its placeholder and cannot rename on followups. */
+        /** Explicit names and successful first turns cannot be overwritten by later send callbacks. */
         naming: { phase: "content" },
         updatedAt: Date.now(),
       };
@@ -267,7 +272,7 @@ function mutate(state, mutation) {
       throw Error("Unknown side-chat mutation");
   }
   next[REGISTRY_KEY] = { version: 1, records };
-  if (["remember", "name-first-turn"].includes(mutation.action)) {
+  if (["remember", "name-first-turn", "rename"].includes(mutation.action)) {
     for (const [key, layout] of Object.entries(next)) {
       if (!key.startsWith(LAYOUT_PREFIX)) continue;
       const protectedLayout = protectLayout(layout, next);
@@ -320,7 +325,7 @@ function handle(context, sender, key, value) {
     } catch (error) {
       // Failed naming flushes must remain retryable. Restore just this record and rebase any
       // concurrent layout saves, without replacing unrelated native state written during flush.
-      if (applied && ["remember", "name-first-turn"].includes(mutation.action)) {
+      if (applied && ["remember", "name-first-turn", "rename"].includes(mutation.action)) {
         const current = store.get("electron-persisted-atom-state") ?? {};
         const records = { ...current[REGISTRY_KEY].records };
         if (previousRecord == null) delete records[mutation.durable.conversationId];

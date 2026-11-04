@@ -1,6 +1,34 @@
 /** Native manager and panel symbols below belong to the hash-pinned build 24614 module graph. */
 
 /**
+ * Subscribe the native shared title family to owned registry and account/user snapshots.
+ * Passing the explicit undefined family key is required by the native persisted-family API.
+ * Remote hosts keep their original title selector and acquire no registry dependency.
+ */
+function codexSidePatchTitle(get, hostId, conversationId) {
+  if (hostId !== "local") return null;
+  const identity = n("SPnB");
+  return __scp.savedSideTitle(get(codexSidePatchRegistryAtom(), void 0), {
+    hostId, conversationId,
+    accountId: get(identity.chatGptAuthenticatedAccountId$),
+    userId: get(identity.o8),
+  });
+}
+
+/**
+ * Subscribe catalog and hydrated sidebar rows to the same saved descriptor as side-panel tabs.
+ * The runtime preserves native task references unless this local row needs a different title.
+ */
+function codexSidePatchSidebarTask(get, task) {
+  if (task?.kind !== "local" || task.summary?.hostId !== "local") return task;
+  const identity = n("SPnB");
+  return __scp.sidebarTask(get(codexSidePatchRegistryAtom(), void 0), task, {
+    accountId: get(identity.chatGptAuthenticatedAccountId$),
+    userId: get(identity.o8),
+  });
+}
+
+/**
  * Preserve Codex's normal first-turn guard for ordinary threads. Saved side chats compare their
  * loaded canonical turn IDs with the persisted inherited boundary before accepting one title.
  */
@@ -85,4 +113,22 @@ async function codexSidePatchNameFirstTurn(scope, conversationId, title) {
     scope.get(identity.o8),
   );
   __codexSideSyncTitle(scope, updated);
+}
+
+/**
+ * Use the native main mutation channel for manual rename/undo/redo, checking identity again after
+ * disk confirmation. Return the allocated title to native menu callbacks and sync both panels.
+ */
+async function codexSidePatchRename(scope, conversationId, title) {
+  const storage = codexSidePatchStorage();
+  const durable = __scp.readRegistry(storage).records[conversationId]?.durable;
+  if (durable == null) throw Error("The saved side chat no longer exists");
+  const identity = n("SPnB");
+  __scp.assertUsable(storage, durable,
+    scope.get(identity.chatGptAuthenticatedAccountId$), scope.get(identity.o8));
+  const updated = await __scp.renameSide(storage, durable, title);
+  __scp.assertUsable(storage, updated,
+    scope.get(identity.chatGptAuthenticatedAccountId$), scope.get(identity.o8));
+  __codexSideSyncTitle(scope, updated);
+  return updated.title;
 }

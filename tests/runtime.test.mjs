@@ -23,6 +23,100 @@ function durable(id = "side-one", parent = "parent-one", account = "account-one"
   };
 }
 
+test("sidebar catalog titles match each side tab across legacy, closed and new registry snapshots", () => {
+  const storage = storageFixture();
+  const identity = { accountId: "account-one", userId: "user-one" };
+  const own = { ...durable(), title: "侧边自己的名字".repeat(10) };
+  persistence.remember(storage, own, []);
+  persistence.remember(storage, { ...durable("second"), title: "Side chat 2" }, []);
+  persistence.hide(storage, "second");
+  persistence.remember(storage, durable("foreign", "parent-one", "other-account"), []);
+  persistence.remember(storage, { ...durable("other-user"), userId: "other-user" }, []);
+  /** Native fields must retain identity and value while a display title is projected. */
+  const task = (id) => Object.freeze({
+    kind: "local", summary: Object.freeze({
+      hostId: "local", conversationId: id, title: "主会话的名字",
+      updatedAt: 42, hasUnreadTurn: true, cwd: "/synthetic/project",
+    }), status: Object.freeze({ inProgress: true }), key: `local:${id}`,
+  });
+  const a = task("side-one");
+  const b = task("second");
+  let index = persistence.readRegistry(storage);
+  const projected = persistence.sidebarTask(index, a, identity);
+  assert.equal(projected.summary.title, own.title, "full tab title must not be truncated again");
+  assert.equal(persistence.sidebarTask(index, b, identity).summary.title, "Side chat 2");
+  assert.strictEqual(projected.status, a.status);
+  assert.equal(projected.key, a.key);
+  assert.deepEqual({ ...projected.summary, title: a.summary.title }, a.summary);
+  assert.equal(a.summary.title, "主会话的名字", "native catalog stays intact");
+  for (const id of ["parent-one", "foreign", "other-user", "unsaved"]) {
+    const native = task(id);
+    assert.strictEqual(persistence.sidebarTask(index, native, identity), native);
+  }
+  const remote = { ...a, summary: { ...a.summary, hostId: "remote" } };
+  assert.strictEqual(persistence.sidebarTask(index, remote, identity), remote);
+  const cloud = { ...a, kind: "cloud" };
+  assert.strictEqual(persistence.sidebarTask(index, cloud, identity), cloud);
+  assert.strictEqual(persistence.sidebarTask(index, a, { ...identity, accountId: null }), a);
+  const rows = persistence.summaryRows(index, [{ conversationId: "side-one", title: "stale tab" }], {
+    ...identity, sourceConversationId: "parent-one",
+  });
+  assert.equal(rows[0].title, projected.summary.title);
+  for (let i = 0; i < 100; i++) {
+    assert.strictEqual(persistence.sidebarTask(index, a, identity), projected);
+  }
+  index = { ...index, records: { ...index.records, "side-one": {
+    ...index.records["side-one"], durable: { ...own, title: "手动改名" },
+  } } };
+  const renamed = persistence.sidebarTask(index, a, identity);
+  assert.notStrictEqual(renamed, projected);
+  assert.equal(renamed.summary.title, "手动改名");
+  assert.strictEqual(persistence.sidebarTask(structuredClone(index), a, identity), renamed,
+    "unrelated native snapshot publications must not clone unchanged task projections");
+  index = { ...index, records: { ...index.records, "side-one": {
+    ...index.records["side-one"], deletion: { operationId: "delete", phase: "requested" },
+  } } };
+  assert.strictEqual(persistence.sidebarTask(index, a, identity), a);
+});
+
+test("native title adapters subscribe with the explicit family key and react to identity/title changes", () => {
+  const storage = storageFixture();
+  persistence.remember(storage, { ...durable(), title: "侧边标题" }, []);
+  let index = persistence.readRegistry(storage);
+  let account = "account-one";
+  const reads = [];
+  const modules = { SPnB: { chatGptAuthenticatedAccountId$: "account", o8: "user" } };
+  const context = {
+    __scp: persistence, n: id => modules[id],
+    codexSidePatchRegistryAtom: () => "registry",
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(new URL("../hooks/title-adapter.js", import.meta.url), "utf8"), context);
+  /** Native family access distinguishes get(family) from get(family, undefined). */
+  function get(...args) {
+    reads.push(args);
+    if (args[0] === "registry") { assert.equal(args.length, 2); return index; }
+    return args[0] === "account" ? account : "user-one";
+  }
+  assert.equal(context.codexSidePatchTitle(get, "local", "side-one"), "侧边标题");
+  assert.deepEqual(reads, [["registry", undefined], ["account"], ["user"]]);
+  const task = { kind: "local", summary: {
+    hostId: "local", conversationId: "side-one", title: "主会话",
+  } };
+  assert.equal(context.codexSidePatchSidebarTask(get, task).summary.title, "侧边标题");
+  index = { ...index, records: { "side-one": {
+    ...index.records["side-one"], durable: { ...durable(), title: "更新后的标题" },
+  } } };
+  assert.equal(context.codexSidePatchTitle(get, "local", "side-one"), "更新后的标题");
+  account = "foreign";
+  assert.equal(context.codexSidePatchTitle(get, "local", "side-one"), null);
+  assert.strictEqual(context.codexSidePatchSidebarTask(get, task), task);
+  reads.length = 0;
+  assert.equal(context.codexSidePatchTitle(get, "remote", "side-one"), null);
+  assert.strictEqual(context.codexSidePatchSidebarTask(get, { ...task, kind: "cloud" }).kind, "cloud");
+  assert.equal(reads.length, 0);
+});
+
 test("closed side chats survive restart and reopen by original ID without crossing accounts/parents", () => {
   const storage = storageFixture();
   persistence.remember(storage, durable(), ["parent-turn"]);

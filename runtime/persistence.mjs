@@ -34,6 +34,11 @@ let cachedBoundaryIds = 0;
  * descriptors and never duplicate bodies or inherited ID arrays.
  */
 const parentGroups = new WeakMap();
+/**
+ * Cache one display-only projection per native sidebar task. Weak keys release retired tasks;
+ * unchanged titles reuse the same task reference so native list equality avoids needless renders.
+ */
+const sidebarTitles = new WeakMap();
 
 /**
  * Read the relation index without overwriting an unknown schema or damaged value.
@@ -177,6 +182,16 @@ export function nameFirstTurn(storage, durable, title) {
   return storage.commit({ action: "name-first-turn", durable, title });
 }
 
+/**
+ * Persist an explicit user rename through the same native queue as first-turn naming. Main
+ * validates ownership, reserves sibling names and seals naming so a late first send cannot undo it.
+ */
+export function renameSide(storage, durable, title) {
+  if (durable?.hostId !== "local") throw Error("Missing local saved side chat");
+  assertUsable(storage, durable, durable.accountId, durable.userId);
+  return storage.commit({ action: "rename", durable, title });
+}
+
 /** Hide a closed panel without deleting its native rollout or its discovery relation. */
 export function hide(storage, conversationId) {
   const index = readRegistry(storage);
@@ -208,6 +223,36 @@ export function forgetCancelled(storage, conversationId) {
 export function isSavedSide(storage, hostId, conversationId) {
   if (hostId !== "local") return false;
   return Boolean(readRegistry(storage).records[conversationId]);
+}
+
+/**
+ * Resolve a saved side's own full display title by native host/UUID and signed-in account/user.
+ * Hidden and legacy records remain discoverable; deleting, remote and foreign records cannot
+ * contribute a title. This read uses one record lookup and does not hydrate or rename a thread.
+ */
+export function savedSideTitle(index, { hostId, conversationId, accountId, userId }) {
+  if (hostId !== "local" || !accountId || !userId) return null;
+  const record = index?.records?.[conversationId];
+  const durable = record?.durable;
+  return record?.deletion || durable?.hostId !== hostId ||
+    durable.accountId !== accountId || durable.userId !== userId ||
+    typeof durable.title !== "string" || !durable.title.trim() ? null : durable.title;
+}
+
+/**
+ * Project only the local summary title consumed by Codex's catalog/live sidebar builder.
+ * All native IDs, pinning inputs, timestamps, status and body references remain unchanged.
+ * Each native task retains at most one cached projection, replaced when its own title changes.
+ */
+export function sidebarTask(index, task, identity) {
+  if (task?.kind !== "local" || task.summary == null) return task;
+  const title = savedSideTitle(index, { ...task.summary, ...identity });
+  if (title == null || title === task.summary.title) return task;
+  const cached = sidebarTitles.get(task);
+  if (cached?.title === title) return cached.task;
+  const updated = { ...task, summary: { ...task.summary, title } };
+  sidebarTitles.set(task, { title, task: updated });
+  return updated;
 }
 
 /**

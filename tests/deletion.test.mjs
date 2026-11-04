@@ -646,6 +646,125 @@ test("failed title flush keeps its previous name and phase, allowing the same su
   } finally { f.dispose(); }
 });
 
+test("manual rename serializes sibling collisions, seals first-turn naming and preserves restored titles", async () => {
+  const f = fixture();
+  try {
+    const a = await runtime.remember(f.storage, durable("a"), [], {
+      phase: "placeholder", baseTitle: "Side chat",
+    });
+    const b = await runtime.remember(f.storage, durable("b"), []);
+    const results = await Promise.all([
+      runtime.renameSide(f.storage, a, "自定义标题"),
+      runtime.renameSide(f.newWindow().storage, b, "自定义标题"),
+    ]);
+    assert.deepEqual(results.map(value => value.title), ["自定义标题", "自定义标题 (2)"]);
+    assert.equal((await runtime.nameFirstTurn(f.storage, a, "late first send")).title, "自定义标题");
+    assert.equal((await runtime.remember(f.storage, a)).title, "自定义标题");
+    assert.equal((await runtime.renameSide(f.storage, a, "再次改名")).title, "再次改名",
+      "content phase must not suppress an explicit user rename");
+    await assert.rejects(runtime.renameSide(f.storage, a, "   "), /Missing side-chat title/);
+    await assert.rejects(f.storage.commit({
+      action: "rename", durable: { ...a, accountId: "foreign" }, title: "private",
+    }), /ownership changed/);
+    await f.storage.commit({ action: "request-delete", durable: a, operationId: "delete" });
+    assert.throws(() => runtime.renameSide(f.storage, a, "late name"), /deleted/);
+    f.restart();
+    assert.equal(runtime.readRegistry(f.newWindow().storage).records.b.durable.title, "自定义标题 (2)");
+  } finally { f.dispose(); }
+});
+
+test("failed manual rename flush restores title and rebases a concurrently moved saved layout", async () => {
+  const f = fixture();
+  try {
+    const a = await runtime.remember(f.storage, { ...durable("a"), title: "原名" }, []);
+    const key = "thread-tab-routes-v1:parent";
+    const empty = { tabIds: [], activeTabId: null, open: false };
+    const occupied = { tabIds: ["sidechat:a"], activeTabId: "sidechat:a", open: true };
+    const original = {
+      version: 1, routes: [{ tabId: "sidechat:a", params: a }],
+      topology: { right: occupied, bottom: empty, focusArea: "right-panel", rightPanelFullWidth: false },
+    };
+    f.store.set("", { ...f.store.get(), [key]: original });
+    const moved = { ...original, topology: {
+      right: empty, bottom: occupied, focusArea: "bottom-panel", rightPanelFullWidth: false,
+    } };
+    f.setFlush(() => {
+      const accepted = state.handle(f.context, f.window, key, moved).value;
+      f.store.set("", { ...f.store.get(), [key]: accepted, nativeUnrelated: 42 });
+    });
+    f.setFailure(Error("disk unavailable"));
+    await assert.rejects(runtime.renameSide(f.storage, a, "新名字"), /disk unavailable/);
+    assert.equal(runtime.readRegistry(f.storage).records.a.durable.title, "原名");
+    assert.equal(runtime.readRegistry(f.storage).records.a.naming, undefined);
+    assert.equal(f.store.get()[key].routes[0].params.title, "原名");
+    assert.deepEqual(f.cache.get(key).topology, moved.topology);
+    assert.equal(f.store.get().nativeUnrelated, 42);
+    f.setFlush(null); f.setFailure(null);
+    assert.equal((await runtime.renameSide(f.storage, a, "新名字")).title, "新名字");
+  } finally { f.dispose(); }
+});
+
+test("native sidebar rename transitions use the registry for perform, undo and redo with full legacy titles", async () => {
+  const f = fixture();
+  try {
+    const legacy = "历史侧边名字".repeat(20);
+    const a = await runtime.remember(f.storage, { ...durable("a"), title: legacy }, []);
+    const b = await runtime.remember(f.storage, { ...durable("b"), title: "冲突" }, []);
+    let account = "account";
+    const scope = { value: { conversationId: "unrelated" },
+      get: key => key === "account" ? account : key === "user" ? "user" : "local" };
+    const modules = { SPnB: { chatGptAuthenticatedAccountId$: "account", o8: "user" } };
+    let transitions;
+    let ordinary = 0;
+    const callbacks = [];
+    const context = {
+      __scp: runtime, n: id => modules[id], codexSidePatchStorage: () => f.storage,
+      __sideTitleClean: input => input.trim().slice(0, 60) || null,
+      p: { qX: "host" }, x: { renameThreadUndone: "native undo label" },
+      m: { vJ: (_, options, actions) => {
+        assert.equal(options.transitionQueueKey, "thread-title:local:a");
+        transitions = actions; return actions.perform();
+      } },
+      ordinary: () => { ordinary++; },
+    };
+    vm.createContext(context);
+    vm.runInContext(fs.readFileSync(new URL("../hooks/title-adapter.js", import.meta.url), "utf8"), context);
+    context.__side = {
+      codexSidePatchStorage: () => f.storage, codexSidePatchRename: context.codexSidePatchRename,
+    };
+    const hook = fs.readFileSync(new URL("../hooks/sidebar-rename.js", import.meta.url), "utf8");
+    vm.runInContext(`function rename(e,{conversationId:t,hostId:n,previousTitle:r,title:i},a){
+      ${hook}
+      return ordinary();
+    }`, context);
+    await context.rename(scope, { conversationId: "a", title: " 冲突 ", previousTitle: "stale parent" },
+      title => callbacks.push(title));
+    assert.equal(runtime.readRegistry(f.storage).records.a.durable.title, "冲突 (2)");
+    assert.equal(callbacks.at(-1), "冲突 (2)");
+    await transitions.undo();
+    assert.equal(runtime.readRegistry(f.storage).records.a.durable.title, legacy);
+    await transitions.redo();
+    assert.equal(runtime.readRegistry(f.storage).records.a.durable.title, "冲突 (2)");
+    assert.equal(runtime.readRegistry(f.storage).records.b.durable.title, b.title);
+    account = "foreign";
+    await assert.rejects(transitions.undo(), /identity changed/);
+    account = "account";
+    const disk = deferred(), entered = deferred();
+    f.setFlush(() => { entered.resolve(); return disk.promise; });
+    const pending = transitions.undo();
+    await entered.promise;
+    account = "foreign"; const before = callbacks.length; disk.resolve();
+    await assert.rejects(pending, /identity changed/);
+    assert.equal(callbacks.length, before, "retired accounts receive no native success callback");
+    account = "account"; f.setFlush(null);
+    await f.storage.commit({ action: "request-delete", durable: a, operationId: "delete" });
+    await assert.rejects(transitions.redo(), /deleted/);
+    context.rename(scope, { conversationId: "parent", hostId: "local", title: "主名" });
+    context.rename(scope, { conversationId: "a", hostId: "remote", title: "远程名" });
+    assert.equal(ordinary, 2, "ordinary and remote chats retain the native rename path");
+  } finally { f.dispose(); }
+});
+
 test("a panel move during title flush keeps the latest topology in disk and renderer broadcasts", async () => {
   const f = fixture();
   try {

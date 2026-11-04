@@ -168,6 +168,43 @@ def build_replacements(archive):
         "this.streamRecovery.markAllConversationsNeedResumeAfterReconnect(e),"
         "this.readState.reset(),__scp.recoverDeletions(this)}async prewarmConversation",
     )
+    # The shared visible title family covers hydrated rows, tabs and rename dialog defaults.
+    text = replace_once(
+        text,
+        'm22M(e,t,n){var r=n("y5DF"),',
+        'm22M(e,t,n){const __side=n("SYKY");var r=n("y5DF"),',
+    )
+    text = replace_once(
+        text,
+        "let n={hostId:t(a.qX,e),threadId:e},r=t(s.Qq,e);",
+        "let n={hostId:t(a.qX,e),threadId:e};"
+        "const title=__side.codexSidePatchTitle(t,n.hostId,e);"
+        "if(title!=null)return title;let r=t(s.Qq,e);",
+    )
+    # Catalog summaries bypass the hydrated title family; adapt only their final visible task.
+    text = replace_once(
+        text,
+        'N42N(e,t,n){var r=n("SZCv"),',
+        'N42N(e,t,n){const __side=n("SYKY");var r=n("SZCv"),',
+    )
+    text = replace_once(
+        text,
+        "return null==r?[]:[{task:r,isPinned:(0,_.jF)(t,r,n)}]",
+        "return null==r?[]:[{task:__side.codexSidePatchSidebarTask(e,r),"
+        "isPinned:(0,_.jF)(t,r,n)}]",
+    )
+    # Keep ordinary rename behavior and the native undo queue; saved sides write no thread RPC.
+    text = replace_once(
+        text,
+        'PAOI(e,t,n){var r=n("QosV"),',
+        'PAOI(e,t,n){const __side=n("SYKY"),__sideTitleClean=n("t162").uw;'
+        'var r=n("QosV"),',
+    )
+    rename_anchor = "function B(e,{conversationId:t,hostId:n,previousTitle:r,title:i},a){"
+    text = replace_once(
+        text, rename_anchor,
+        rename_anchor + "\n" + (ROOT / "hooks/sidebar-rename.js").read_text() + "\n",
+    )
     core_tail = (
         'ew.enum(["config/read","configRequirements/read","account/gatewayOAuth/read",'
         '"account/login/start","account/bedrock/discover","account/bedrock/setup",'
@@ -202,6 +239,9 @@ n.d(t,{
   codexSidePatchRegisterDeletionScope:()=>codexSidePatchRegisterDeletionScope,
   codexSidePatchRegisterDeletionTab:()=>codexSidePatchRegisterDeletionTab,
   codexSidePatchDelete:()=>codexSidePatchDelete,
+  codexSidePatchTitle:()=>codexSidePatchTitle,
+  codexSidePatchSidebarTask:()=>codexSidePatchSidebarTask,
+  codexSidePatchRename:()=>codexSidePatchRename,
   codexSidePatchIsFirstTurn:()=>codexSidePatchIsFirstTurn,
   codexSidePatchNameFirstTurn:()=>codexSidePatchNameFirstTurn
 });
@@ -463,6 +503,7 @@ def implementation_digest():
         ROOT / "hooks/restore.js",
         ROOT / "hooks/delete-adapter.js",
         ROOT / "hooks/title-adapter.js",
+        ROOT / "hooks/sidebar-rename.js",
         ROOT / "hooks/side-list.js",
         ROOT / "hooks/summary.js",
         ROOT / "patchkit/manager.py",
