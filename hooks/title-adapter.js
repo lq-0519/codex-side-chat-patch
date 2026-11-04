@@ -1,7 +1,7 @@
 /** Native manager and panel symbols below belong to the hash-pinned build 24614 module graph. */
 
 /**
- * Subscribe the native shared title family to owned registry and account/user snapshots.
+ * Subscribe hydrated and final sidebar title families to owned registry/account/user snapshots.
  * Passing the explicit undefined family key is required by the native persisted-family API.
  * Remote hosts keep their original title selector and acquire no registry dependency.
  */

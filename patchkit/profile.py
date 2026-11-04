@@ -26,7 +26,33 @@ ASSETS = {
         "3e01ea1eaaacea58cda43e28dd8a3170243d017e5598083d2952f70de8aeb867",
     "async/563813.7486e43f6b.js":
         "be18b9983577cfb50cac8c98725c0d554d32110d7c485950177f0481ef2f0d09",
+    "async/459554.89fbfa504a.js":
+        "4b037db0f3562041b2f3207b97704f05eb5f6ecc894713291403f69ea9f0975b",
+    "async/877806.7e45d785db.js":
+        "75f7f389ce90315a58daf540e0954ebcdcfae11a7908d3e9a961dc11476188e0",
+    "async/68896.5bbabbf37a.js":
+        "3dadfbdb0e492523283079dfe8f3eb857383047184f491b15bc91119f92d3857",
+    "async/764042.9815cd9b33.js":
+        "7502b19ca5b7f4372c66d2fe4a6d83619fe489a07f817200f9cd7d763b54b5a7",
+    "async/851215.a4baed9735.js":
+        "95d3c5b3d2076cfc8ab959409f09ac934b833e655003823f1a09723bf41aa901",
+    "async/726557.28439637a7.js":
+        "d2bd6a9a34e381f60421b177b0c48b10c964a9cf5791cbad98f36719ba82c585",
+    "async/51203.d5544ccc30.js":
+        "8df6b0ebe7b5bfd386d854d1b8872fad58038a51edaaed120149101bce03500b",
 }
+# SIDEBAR_TITLE_ASSETS covers every packaged copy of WRqP.e, the sidebar's final title family.
+# Rspack duplicates this factory with different local aliases across seven independently loaded
+# chunks; adapting all copies prevents load order from restoring an inherited native liveTitle.
+SIDEBAR_TITLE_ASSETS = (
+    "async/459554.89fbfa504a.js",
+    "async/877806.7e45d785db.js",
+    "async/68896.5bbabbf37a.js",
+    "async/764042.9815cd9b33.js",
+    "async/851215.a4baed9735.js",
+    "async/726557.28439637a7.js",
+    "async/51203.d5544ccc30.js",
+)
 # MAIN_ASSETS independently pins native main-process storage coordination for deletion.
 MAIN_ASSETS = {
     ".vite/build/early-bootstrap-45-628adb74a9c47df1.js":
@@ -468,6 +494,23 @@ return __scp.summaryRows(e(__side.codexSidePatchRegistryAtom(),void 0),nativeRow
     )
     source[name] = IMPORT + text
 
+    # FeCP's final sidebar row re-reads WRqP.e even after the catalog task was projected. Prefer
+    # an owned saved title before optimistic/catalog/live titles, leaving native fallback intact.
+    sidebar_title = (ROOT / "hooks/sidebar-title.js").read_text()
+    for name in SIDEBAR_TITLE_ASSETS:
+        text = replace_once(
+            source[name],
+            "WRqP(e,t,n){",
+            'WRqP(e,t,n){const __side=n("SYKY");',
+        )
+        source[name] = replace_between_after(
+            text,
+            "WRqP(e,t,n){",
+            "if(null==e)return null;",
+            "let n=t(",
+            sidebar_title + "\n",
+        )
+
     result = {
         "webview/assets/" + name: value.encode("utf-8")
         for name, value in source.items()
@@ -503,6 +546,7 @@ def implementation_digest():
         ROOT / "hooks/restore.js",
         ROOT / "hooks/delete-adapter.js",
         ROOT / "hooks/title-adapter.js",
+        ROOT / "hooks/sidebar-title.js",
         ROOT / "hooks/sidebar-rename.js",
         ROOT / "hooks/side-list.js",
         ROOT / "hooks/summary.js",

@@ -117,6 +117,71 @@ test("native title adapters subscribe with the explicit family key and react to 
   assert.equal(reads.length, 0);
 });
 
+test("final sidebar selector prefers the side tab title over nonempty native titles and reacts to changes", () => {
+  const storage = storageFixture();
+  const own = { ...durable(), title: "侧边标签自己的完整名字".repeat(10) };
+  persistence.remember(storage, own, []);
+  persistence.remember(storage, durable("foreign", "parent-one", "foreign-account"), []);
+  persistence.remember(storage, { ...durable("other-user"), userId: "other-user" }, []);
+  let index = persistence.readRegistry(storage);
+  let account = "account-one";
+  let user = "user-one";
+  const reads = [];
+  const nativeReads = [];
+  const context = {
+    __scp: persistence,
+    n: () => ({ chatGptAuthenticatedAccountId$: "account", o8: "user" }),
+    codexSidePatchRegistryAtom: () => "registry",
+    nativeFallback: key => { nativeReads.push(key); return "主会话原生标题"; },
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(new URL("../hooks/title-adapter.js", import.meta.url), "utf8"), context);
+  context.__side = { codexSidePatchTitle: context.codexSidePatchTitle };
+  const hook = fs.readFileSync(new URL("../hooks/sidebar-title.js", import.meta.url), "utf8");
+  vm.runInContext(`function finalTitle(e, {get:t}) {${hook}\nreturn nativeFallback(e);}`, context);
+  /** Record native dependencies to verify saved titles react to registry and both identity atoms. */
+  function get(...args) {
+    reads.push(args);
+    if (args[0] === "registry") { assert.equal(args.length, 2); return index; }
+    return args[0] === "account" ? account : user;
+  }
+  /** FeCP gives this selector's non-null result priority over the projected catalog row title. */
+  function rowTitle(id = "side-one", hostId = "local") {
+    return context.finalTitle({ hostId, threadId: id }, { get }) ?? "catalog title";
+  }
+  assert.equal(rowTitle(), own.title);
+  assert.equal(nativeReads.length, 0, "optimistic/catalog/live title paths must not override a side");
+  assert.deepEqual(reads, [["registry", undefined], ["account"], ["user"]]);
+  const tabRows = persistence.summaryRows(index, [{ conversationId: "side-one", title: "stale tab" }], {
+    accountId: account, userId: user, sourceConversationId: "parent-one",
+  });
+  assert.equal(rowTitle(), tabRows[0].title, "left row and side tab must share the complete title");
+  index = { ...index, records: { ...index.records, "side-one": {
+    ...index.records["side-one"], durable: { ...own, title: "改名后的侧边标题" },
+  } } };
+  assert.equal(rowTitle(), "改名后的侧边标题");
+  index = structuredClone(index);
+  assert.equal(rowTitle(), "改名后的侧边标题", "persisted title survives renderer restart");
+  for (const id of ["parent-one", "unsaved", "foreign", "other-user"]) {
+    assert.equal(rowTitle(id), "主会话原生标题", "unowned threads retain native fallback");
+  }
+  account = null;
+  assert.equal(rowTitle(), "主会话原生标题");
+  account = "account-one";
+  user = "other-user";
+  assert.equal(rowTitle(), "主会话原生标题");
+  user = "user-one";
+  index = { ...index, records: { ...index.records, "side-one": {
+    ...index.records["side-one"], deletion: { operationId: "delete", phase: "requested" },
+  } } };
+  assert.equal(rowTitle(), "主会话原生标题", "deletion must stop displaying the managed title");
+  reads.length = 0;
+  assert.equal(rowTitle("side-one", "remote"), "主会话原生标题");
+  assert.equal(reads.length, 0, "remote title selection acquires no local registry dependencies");
+  assert.equal(context.finalTitle(null, { get }), null);
+  assert.equal(reads.length, 0, "null family keys preserve the native early return");
+});
+
 test("closed side chats survive restart and reopen by original ID without crossing accounts/parents", () => {
   const storage = storageFixture();
   persistence.remember(storage, durable(), ["parent-turn"]);
