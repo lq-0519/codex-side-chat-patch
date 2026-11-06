@@ -35,7 +35,7 @@ Codex 的本地引擎已经支持持久线程，但原侧边创建走临时模�
 
 兼容 registry 的固定键只发布已验证的稳定快照。渲染端变更命令使用请求级临时键，主进程落盘确认后通过独立回执返回，并清理命令与回执键，避免原生 KV 的乐观发布把命令 envelope 暴露给 registry 订阅者。
 
-当前 build 的完整原厂回滚包位于 `/Applications/.codex-side-patch-0cp1zkum/ChatGPT.app`，路径记录在 `~/Library/Application Support/CodexSideChatPatch/installation.json` 的 `backup` 字段。软件更新后不可用旧记录覆盖当前新版本。补丁运行时不需要常驻 Python 进程。
+当前 build 的完整原厂回滚包位于 `/Applications/.codex-side-patch-vafwb2c9/ChatGPT.app`，路径记录在 `~/Library/Application Support/CodexSideChatPatch/installation.json` 的 `backup` 字段。软件更新后不可用旧记录覆盖当前新版本。补丁运行时不需要常驻 Python 进程。
 
 ## 支持范围
 
@@ -201,7 +201,7 @@ python3 -B tests/native_protocol_probe.py \
 
 当前 42 个 Node 用例和 32 个 Python 用例全部通过，覆盖前台分栏、两种全宽状态、手动放大、持久化、左右标题对应、非空原生标题的最终优先级、手动改名与撤销、账号隔离、落盘失败、删除并发、mutation 命令与稳定 registry 快照隔离、原生附属侧边兼容及安装事务。build 24614 的 Rspack 模块边界、唯一锚点、身份信号、原生持久恢复、KV、统一时间线、面板、关系和布局 API 已逐处核对；主进程存储接入 `early-bootstrap-45`，框架路径仍为 `156.0.8078.79`。十五份新增或替换资源通过哈希、语法与作用域检查，没有新增未解析的模块变量。实际原生 `uiXp.ep`、`ZU27.zs/X8` 和 `gbrq.mC/m_` 的 21 组布局验证通过，确认分叉/恢复请求未完成时已分栏、完成接纳不会重设全宽，并保留之后的手动放大。此次仅修改 `uiXp` 所在 chunk，其余十四份资源与已安装版本相同；此前 84 次原生标题分支及归属/删除回退比较和隔离 CLI 协议检查结论继续有效。
 
-固定签名副本通过严格签名、两层 Electron 元数据及收据校验，补丁 ASAR 为 `e6221c53dc15511a2e081ee1f962d7a45c44405ae37876f44ab5532ec24828e9`，位于 `~/Library/Application Support/CodexSideChatPatch/stages/build-24614-split-20261106`。按用户要求暂不退出 CodeX，此次修复尚未安装；运行中的应用仍为 ASAR `93e146f27be9d20b5675c294c459aadcd6ead0ba9da00943894b64099b39d116`。
+固定签名副本和已安装应用通过严格签名、两层 Electron 元数据、十五份资源字节及收据校验，补丁 ASAR 为 `e6221c53dc15511a2e081ee1f962d7a45c44405ae37876f44ab5532ec24828e9`。安装事务已提交，CodeX 已正常重新打开并通过主进程连续存活检查；安装副本及旧备份已清理，只保留安装记录引用的完整原厂回滚包。
 
 用户已确认原快捷键可以新建空侧边聊天，且统一时间线不显示继承的主会话历史。前台分栏、手动放大、左侧标题及恢复后的显示由用户完成界面验收。关闭后从主会话 Side chats 重开、正常退出并重启后继续追问、标签恢复及重签后的重新登录、钥匙串和实际系统权限仍需完整验收。工具、图片、附件、超长历史、压缩和生成中强制退出尚未完成桌面验证。
 
