@@ -107,6 +107,23 @@ def build_replacements(archive):
     # Core manager, storage adapter, deletion lifecycle and title adapter.
     name = "async/24191.589dcc9878.js"
     text = source[name]
+    # Native durableRoute.restore validates params before entering the side-chat restore hook.
+    # Accept the exact managed-descriptor marker here, retaining strict field validation and
+    # rejection of unknown patch versions. Keeping the marker also preserves deletion guards
+    # after a tombstone has outlived its registry record; legacy unmarked descriptors still parse.
+    text = replace_once(
+        text,
+        'nJj6(e,t,n){var r=n("DBCl"),i=n("ASxG");let a=i.strictObject({',
+        'nJj6(e,t,n){var r=n("DBCl"),i=n("ASxG");let a=i.strictObject({'
+        'patchVersion:i.literal(1).optional(),',
+    )
+    # The native attached-thread response already carries Unix-second creation timestamps.
+    # Preserve that metadata in the manager projection so discovery needs no additional RPC.
+    text = replace_once(
+        text,
+        "return{id:n,title:e.name,hasUnreadTurn:",
+        "return{id:n,title:e.name,createdAt:e.createdAt,hasUnreadTurn:",
+    )
     text = replace_once(
         text,
         'function N(e,t){let n=P(e);return e.turnHistory?.kind==="canonical"?'
@@ -412,7 +429,8 @@ E?.();let n=await ev(e,t.hostId,t.conversationId);k?.(n)}"""
     )
     source[name] = IMPORT + text
 
-    # Native summary discovery remains authoritative; compatibility rows are merged into it.
+    # Native discovery supplies creation time in seconds. Normalize it to registry milliseconds
+    # before merging open, saved-closed and native-only rows into one newest-created-first list.
     name = "async/357959.de4ec41383.js"
     text = source[name]
     text = replace_once(
@@ -429,6 +447,7 @@ const nativeRows=[...new Set([...r.keys(),...n.keys()])].map((s,a)=>{
   let l=n.get(s),i={hostId:null!=l&&null!=d?d.hostId:e(o.qX,s),threadId:s},
     c=e(o.ok,i),u=r.get(s)??l?.title??(0,aW.c)(e(n3.g),a+1);
   return{conversationId:s,tabId:`${aH.y0}${s}`,title:u,
+    createdAt:Number.isFinite(l?.createdAt)&&l.createdAt>0?l.createdAt*1000:void 0,
     isResponseInProgress:c?.isConversationInProgress??l?.isResponseInProgress??!1,
     hasUnreadTurn:c?.summary.hasUnreadTurn??e(aq.I,i)??l?.hasUnreadTurn??!1,
     savedThread:null==l?null:i};

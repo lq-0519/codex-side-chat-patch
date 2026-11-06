@@ -343,12 +343,39 @@ export function presentationOptions(storage, conversation, options) {
 }
 
 /**
+ * Read only a valid creation timestamp in milliseconds. Unknown legacy timestamps sort last;
+ * activity, rename and reopen timestamps never stand in for the original creation time.
+ */
+function summaryCreationTime(row) {
+  return Number.isFinite(row.createdAt) && row.createdAt > 0 ? row.createdAt : -Infinity;
+}
+
+/**
+ * Order all side-chat rows by newest creation while retaining ties in their original order.
+ * Scan first to reuse an already ordered native array; sort a copy only when order must change,
+ * keeping native inputs immutable and avoiding needless list updates for unchanged snapshots.
+ */
+function sortSummaryRows(rows) {
+  for (let index = 1; index < rows.length; index++) {
+    if (summaryCreationTime(rows[index]) > summaryCreationTime(rows[index - 1])) {
+      return [...rows].sort((a, b) => {
+        const first = summaryCreationTime(a);
+        const second = summaryCreationTime(b);
+        return first === second ? 0 : second > first ? 1 : -1;
+      });
+    }
+  }
+  return rows;
+}
+
+/**
  * Merge the existing open-tab list with saved local relations for the current parent.
- * Account/user checks run before presenting titles; open tab rows retain their native behavior.
+ * Account/user checks run before presenting titles and authoritative registry creation times.
+ * Open, hidden and native-only rows share creation order; native response/unread state survives.
  * A hidden row carries its descriptor so the original panel can reopen the same thread ID.
  */
 export function summaryRows(index, openRows, { accountId, userId, sourceConversationId }) {
-  if (index == null) return openRows;
+  if (index == null) return sortSummaryRows(openRows);
   let accounts = parentGroups.get(index);
   if (accounts == null) {
     accounts = new Map();
@@ -366,12 +393,13 @@ export function summaryRows(index, openRows, { accountId, userId, sourceConversa
     parentGroups.set(index, accounts);
   }
   const saved = accounts.get(accountId)?.get(userId)?.get(sourceConversationId);
-  if (saved == null) return openRows;
+  if (saved == null) return sortSummaryRows(openRows);
   const byId = new Map(saved.map((record) => [record.durable.conversationId, record]));
   let rows = openRows.map((row) => {
     const record = byId.get(row.conversationId);
     return record == null ? row : {
       ...row, title: record.durable.title ?? row.title,
+      createdAt: record.createdAt ?? row.createdAt,
       durable: record.durable, deletion: record.deletion, isSavedClosed: false,
     };
   });
@@ -383,12 +411,13 @@ export function summaryRows(index, openRows, { accountId, userId, sourceConversa
         conversationId: durable.conversationId,
         tabId: `sidechat:${durable.conversationId}`,
         title: durable.title ?? "Side chat",
+        createdAt: record.createdAt,
         isResponseInProgress: false,
         durable, deletion: record.deletion, isSavedClosed: true,
       });
     }
   }
-  return rows;
+  return sortSummaryRows(rows);
 }
 
 /** Capture all own Error fields, including message/stack, instead of JSON's empty Error object. */

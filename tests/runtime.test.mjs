@@ -120,7 +120,7 @@ test("sidebar catalog titles match each side tab across legacy, closed and new r
   const rows = persistence.summaryRows(index, [{ conversationId: "side-one", title: "stale tab" }], {
     ...identity, sourceConversationId: "parent-one",
   });
-  assert.equal(rows[0].title, projected.summary.title);
+  assert.equal(rows.find(row => row.conversationId === "side-one").title, projected.summary.title);
   for (let i = 0; i < 100; i++) {
     assert.strictEqual(persistence.sidebarTask(index, a, identity), projected);
   }
@@ -214,7 +214,8 @@ test("final sidebar selector prefers the side tab title over nonempty native tit
   const tabRows = persistence.summaryRows(index, [{ conversationId: "side-one", title: "stale tab" }], {
     accountId: account, userId: user, sourceConversationId: "parent-one",
   });
-  assert.equal(rowTitle(), tabRows[0].title, "left row and side tab must share the complete title");
+  assert.equal(rowTitle(), tabRows.find(row => row.conversationId === "side-one").title,
+    "left row and side tab must share the complete title");
   index = { ...index, records: { ...index.records, "side-one": {
     ...index.records["side-one"], durable: { ...own, title: "改名后的侧边标题" },
   } } };
@@ -374,8 +375,90 @@ test("unchanged relation writes are skipped and parent discovery reuses only the
   }), empty);
   persistence.summaryRows(value, empty, identity);
   persistence.remember(storage, durable("new-side"), []);
+  value = { ...value, records: { ...value.records, "new-side": {
+    ...value.records["new-side"], createdAt: value.records["side-one"].createdAt + 1,
+  } } };
   assert.deepEqual(persistence.summaryRows(value, empty, identity).map(row => row.conversationId),
-    ["side-one", "new-side"]);
+    ["new-side", "side-one"]);
+});
+
+test("side chat discovery sorts open, closed and native-only rows by creation without mutating input", () => {
+  const identity = {
+    accountId: "account-one", userId: "user-one", sourceConversationId: "parent-one",
+  };
+  /** Fixed millisecond timestamps make creation/activity differences independent of wall time. */
+  const record = (id, createdAt, options = {}) => Object.freeze({
+    durable: Object.freeze(durable(id)), createdAt, updatedAt: 9000,
+    inheritedTurnIds: Object.freeze([]), hidden: true, ...options,
+  });
+  const index = Object.freeze({ version: 1, records: Object.freeze({
+    oldest: record("oldest", 1000, { hidden: false, updatedAt: 999999 }),
+    newest: record("newest", 5000),
+    tied: record("tied", 3000),
+    unknown: record("unknown", undefined),
+    foreign: record("foreign", 10000, { durable: durable("foreign", "parent-one", "other-account") }),
+    "other-user": record("other-user", 10000, { durable: { ...durable("other-user"), userId: "other-user" } }),
+    "other-parent": record("other-parent", 10000, { durable: durable("other-parent", "other-parent") }),
+  }) });
+  const nativeRows = Object.freeze([
+    Object.freeze({ conversationId: "oldest", createdAt: 99999, isResponseInProgress: true }),
+    Object.freeze({ conversationId: "native", createdAt: 3000, hasUnreadTurn: true }),
+    Object.freeze({ conversationId: "no-time" }),
+  ]);
+  const rows = persistence.summaryRows(index, nativeRows, identity);
+  assert.deepEqual(rows.map(row => row.conversationId),
+    ["newest", "native", "tied", "oldest", "no-time", "unknown"]);
+  assert.equal(rows[3].createdAt, 1000, "saved creation time overrides newer native metadata");
+  assert.equal(rows[3].isResponseInProgress, true);
+  assert.strictEqual(rows[1], nativeRows[1], "native metadata and reference remain intact");
+  assert.equal(nativeRows[0].createdAt, 99999);
+  for (const unavailableIndex of [null, { version: 1, records: {} }]) {
+    const sorted = persistence.summaryRows(unavailableIndex, nativeRows, identity);
+    assert.deepEqual(sorted.map(row => row.conversationId), ["oldest", "native", "no-time"]);
+    assert.strictEqual(sorted, nativeRows, "an ordered native input keeps its reference");
+    const reverse = Object.freeze([...nativeRows].reverse());
+    assert.deepEqual(persistence.summaryRows(unavailableIndex, reverse, identity), sorted);
+    assert.equal(reverse[0].conversationId, "no-time");
+  }
+  const invalid = [
+    { conversationId: "nan", createdAt: NaN },
+    { conversationId: "infinite", createdAt: Infinity },
+    { conversationId: "string", createdAt: "9999" },
+    { conversationId: "zero", createdAt: 0 },
+    { conversationId: "negative", createdAt: -1 },
+    { conversationId: "known", createdAt: 1 },
+  ];
+  assert.deepEqual(persistence.summaryRows(null, invalid, identity).map(row => row.conversationId),
+    ["known", "nan", "infinite", "string", "zero", "negative"]);
+});
+
+test("closing, renaming and reopening a saved side chat preserve its creation order across restart", () => {
+  const storage = storageFixture();
+  const identity = {
+    accountId: "account-one", userId: "user-one", sourceConversationId: "parent-one",
+  };
+  persistence.remember(storage, durable("older"), []);
+  persistence.remember(storage, durable("newer"), []);
+  const index = persistence.readRegistry(storage);
+  storage.writeValue(persistence.REGISTRY_KEY, { ...index, records: {
+    older: { ...index.records.older, createdAt: 1000 },
+    newer: { ...index.records.newer, createdAt: 2000 },
+  } });
+  persistence.hide(storage, "older");
+  const hidden = persistence.readRegistry(storage);
+  assert.equal(hidden.records.older.createdAt, 1000);
+  storage.writeValue(persistence.REGISTRY_KEY, { ...hidden, records: {
+    ...hidden.records, older: { ...hidden.records.older,
+      durable: { ...hidden.records.older.durable, title: "renamed after newer was created" },
+    },
+  } });
+  persistence.remember(storage, durable("older"));
+  const restarted = structuredClone(persistence.readRegistry(storage));
+  const rows = persistence.summaryRows(restarted, [{ conversationId: "older" }], identity);
+  assert.deepEqual(rows.map(row => row.conversationId), ["newer", "older"]);
+  assert.equal(rows[1].title, "renamed after newer was created");
+  assert.equal(restarted.records.older.createdAt, 1000);
+  assert.ok(restarted.records.older.updatedAt > restarted.records.newer.createdAt);
 });
 
 test("actual summary hook reads the native KV family with a key and preserves reactive open/saved rows", () => {
@@ -409,6 +492,7 @@ test("actual summary hook reads the native KV family with a key and preserves re
   const scope = { value: { conversationId: "parent-one" } };
   const nativeRows = [{
     conversationId: "live-side", tabId: "sidechat:live-side", isResponseInProgress: true,
+    createdAt: Date.now() + 1000,
     hasUnreadTurn: true, savedThread: { hostId: "local", threadId: "live-side" },
   }];
   const rows = selector({ get, scope }, nativeRows);
