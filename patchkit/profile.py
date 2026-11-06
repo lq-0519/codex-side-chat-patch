@@ -320,7 +320,17 @@ n.d(t,{
     text = replace_once(
         text,
         "uiXp(e,t,n){n.r(t),",
-        'uiXp(e,t,n){const __side=n("SYKY"),__sideIdentity=n("SPnB");n.r(t),',
+        'uiXp(e,t,n){const __side=n("SYKY"),__sideIdentity=n("SPnB");'
+        + (ROOT / "hooks/panel-open.js").read_text()
+        + "\nn.r(t),",
+    )
+    # Normalize only a successfully accepted foreground local right panel, before awaiting the
+    # fork/restore request. Native completion does not reveal again, so manual maximization later
+    # remains under the application's own panel controller.
+    text = replace_once(
+        text,
+        "if(null==J)return null;a&&null!=$",
+        "if(null==J)return null;codexSidePatchRevealSplit(e,V,f,a);a&&null!=$",
     )
     text = replace_once(
         text,
@@ -544,6 +554,7 @@ def implementation_digest():
         ROOT / "runtime/main-state.cjs",
         ROOT / "hooks/local-create.js",
         ROOT / "hooks/restore.js",
+        ROOT / "hooks/panel-open.js",
         ROOT / "hooks/delete-adapter.js",
         ROOT / "hooks/title-adapter.js",
         ROOT / "hooks/sidebar-title.js",

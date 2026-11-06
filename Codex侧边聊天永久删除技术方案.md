@@ -1,6 +1,6 @@
 # Codex 侧边聊天永久删除技术方案
 
-更新日期：2026-11-04。适配版本：Codex `26.1029.61003`，build `24614`。
+更新日期：2026-11-06。适配版本：Codex `26.1029.61003`，build `24614`。
 
 ## 1. 最终架构结论
 
@@ -23,6 +23,10 @@ build 24614 已把渲染层迁移到 Rspack，并提供原生持久 Side Chat �
 
 主会话的 **Side chats** 列表同时展示原生发现条目和兼容 registry 条目。普通关闭只隐藏面板并保留线程；行菜单中的“删除”打开永久删除确认框。
 
+快捷键或菜单前台打开本地右侧聊天时，保留左侧列表和主会话，侧边聊天在旁分栏。原生待加载标签接纳成功后、分叉或恢复请求前，使用 `ZU27.zs/X8` 解除普通及工作区两种全宽状态；不修改保存的默认设置、不重复通知标签、不增加订阅，之后仍可手动放大。后台恢复、底部面板、远程会话及未接纳标签沿用原生流程。
+
+实现依据：[前台分栏](source://codex-side-chat-patch/hooks/panel-open.js:480)、[原生打开生命周期接入](source://codex-side-chat-patch/patchkit/profile.py:14254)。
+
 确认框明确说明侧边聊天及其子代理聊天会永久删除。默认焦点为“取消”；提交后阻止重复提交，失败时保留错误和重试入口。
 
 列表与确认框继续使用 Codex 原生列表、菜单、对话框和按钮组件，不维护独立 UI 框架。
@@ -33,7 +37,7 @@ build 24614 已把渲染层迁移到 Rspack，并提供原生持久 Side Chat �
 
 手动改名保留原生文字清理及撤销队列，通过主进程串行更新 registry 和已有布局。重名沿用同一账户/用户/主会话内的编号规则；撤销恢复完整历史标题，显式改名阻止迟到首轮回调覆盖。归属变化或删除状态拒绝改名；落盘失败恢复原名并保留同期布局变化。该流程不调用模型或新增线程改名 RPC。
 
-实现依据：[归属标题读取](source://codex-side-chat-patch/runtime/persistence.mjs:10565)、[缓存摘要投影](source://codex-side-chat-patch/runtime/persistence.mjs:11305)、[原生响应式订阅](source://codex-side-chat-patch/hooks/title-adapter.js:384)、[最终列表行标题](source://codex-side-chat-patch/hooks/sidebar-title.js:281)、[全部标题模块适配](source://codex-side-chat-patch/patchkit/profile.py:21101)、[改名与面板同步](source://codex-side-chat-patch/hooks/title-adapter.js:4674)、[撤销队列接入](source://codex-side-chat-patch/hooks/sidebar-rename.js:0)、[主进程合并](source://codex-side-chat-patch/runtime/main-state.cjs:7126)。
+实现依据：[归属标题读取](source://codex-side-chat-patch/runtime/persistence.mjs:10565)、[缓存摘要投影](source://codex-side-chat-patch/runtime/persistence.mjs:11305)、[原生响应式订阅](source://codex-side-chat-patch/hooks/title-adapter.js:384)、[最终列表行标题](source://codex-side-chat-patch/hooks/sidebar-title.js:281)、[全部标题模块适配](source://codex-side-chat-patch/patchkit/profile.py:21658)、[改名与面板同步](source://codex-side-chat-patch/hooks/title-adapter.js:4674)、[撤销队列接入](source://codex-side-chat-patch/hooks/sidebar-rename.js:0)、[主进程合并](source://codex-side-chat-patch/runtime/main-state.cjs:7126)。
 
 ## 3. 删除接口与日志
 
@@ -100,10 +104,11 @@ registry 固定键只保存稳定快照。渲染端命令发布到请求级临�
 
 ## 7. 验证结论
 
-- 41 个 Node 行为用例通过，覆盖左右标题对应、非空原生标题的最终优先级、手动改名与撤销、账号隔离、创建、恢复、命名、mutation 命令与稳定 registry 快照隔离、删除并发、落盘失败、跨窗口通知和陈旧恢复。
+- 42 个 Node 行为用例通过，覆盖前台分栏、两种全宽状态、手动放大、左右标题对应、非空原生标题的最终优先级、手动改名与撤销、账号隔离、创建、恢复、命名、mutation 命令与稳定 registry 快照隔离、删除并发、落盘失败、跨窗口通知和陈旧恢复。
 - 32 个 Python 安装事务用例通过。
 - `codex-cli 0.166.0-alpha.6` 隔离协议检查通过：持久分叉、无正文边界分页、重启原 ID、多轮上下文、父会话后续轮次隔离和临时线程语义均符合预期。
 - 12 个 Rspack chunk、1 个主进程资源和 2 个运行时模块通过精确哈希、唯一锚点、Node 语法、Acorn 语法与作用域检查，没有新增未解析的模块变量。
+- 实际原生 `uiXp.ep`、`ZU27.zs/X8` 和 `gbrq.mC/m_` 的 21 组布局验证通过：分叉/恢复请求未完成时已分栏，完成接纳不重设全宽，之后手动放大继续生效；后台恢复、底部、远程及未接纳标签保持原生行为。
 - 实际原生 `m22M.N/Q`、`N42N.xn/xF`、`PAOI.B`、全部七份 `WRqP.e` 和 `FeCP` 最终标题表达式通过合成状态验证，覆盖缓存/已加载标题、最终行优先级、响应式更新、任务引用及改名/撤销；84 次原生标题分支及归属/删除回退比较通过，侧边改名没有发送原生线程改名 RPC。
-- 固定证书签名副本和已安装应用通过 ASAR、Electron 框架元数据、完整包深度签名及安装收据校验。
-- 当前 `/Applications/ChatGPT.app` 已正常启动；用户已确认快捷键新建侧边聊天为空，不显示主会话历史。本次左侧“最近”与侧边标签同名、改名及恢复标题仍由用户完成界面验收。
+- 固定证书签名副本通过 ASAR、Electron 框架元数据、完整包深度签名及收据校验，ASAR 为 `e6221c53dc15511a2e081ee1f962d7a45c44405ae37876f44ab5532ec24828e9`。此次仅改变 `uiXp` 所在 chunk，其余十四份资源与已安装版本相同。
+- 按用户要求暂不退出 CodeX，此次修复尚未安装；当前 `/Applications/ChatGPT.app` 仍在运行。用户已确认快捷键新建侧边聊天为空，不显示主会话历史；前台分栏、手动放大、左右标题及恢复后的显示由用户完成界面验收。

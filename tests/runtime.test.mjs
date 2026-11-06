@@ -23,6 +23,65 @@ function durable(id = "side-one", parent = "parent-one", account = "account-one"
   };
 }
 
+test("foreground right side chats clear both native full-view sources and preserve later user actions", () => {
+  const signals = { hy: "layout", em: "panelFull", A6: "workspaceFull" };
+  const values = new Map();
+  const calls = [];
+  const reads = [];
+  const modules = {
+    QcW8: signals,
+    ZU27: {
+      zs: (scope, full, options) => {
+        calls.push(["panel", full, options.notifyTab]);
+        scope.set(signals.hy, full ? "full" : "split");
+        scope.set(signals.em, full);
+      },
+      X8: (scope, full, options) => {
+        calls.push(["workspace", full, options.notifyTab]);
+        scope.set(signals.A6, full);
+      },
+    },
+  };
+  const context = { n: id => { reads.push(id); return modules[id]; } };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(new URL("../hooks/panel-open.js", import.meta.url), "utf8"), context);
+  const scope = {
+    get: key => values.get(key),
+    set: (key, value) => values.set(key, value),
+  };
+  for (const layout of ["full", "split"]) {
+    for (const panelFull of [false, true]) {
+      for (const workspaceFull of [false, true]) {
+        values.set(signals.hy, layout);
+        values.set(signals.em, panelFull);
+        values.set(signals.A6, workspaceFull);
+        calls.length = 0;
+        context.codexSidePatchRevealSplit(scope, { panelId: "right" }, "local", true);
+        assert.deepEqual([...values.values()], ["split", false, false]);
+        assert.equal(calls.length, Number(layout !== "split" || panelFull) + Number(workspaceFull));
+        assert.ok(calls.every(call => call[1] === false && call[2] === false));
+      }
+    }
+  }
+  calls.length = 0;
+  context.codexSidePatchRevealSplit(scope, { panelId: "right" }, "local", true);
+  assert.equal(calls.length, 0, "opening another tab in a split panel needs no layout writes");
+  modules.ZU27.zs(scope, true, { notifyTab: true });
+  modules.ZU27.X8(scope, true, { notifyTab: true });
+  assert.deepEqual([...values.values()], ["full", true, true],
+    "the open hook does not hold or subscribe to layout after the reveal");
+  for (const [hostId, panelId, foreground] of [
+    ["local", "right", false], ["remote", "right", true], ["local", "bottom", true],
+  ]) {
+    reads.length = 0;
+    calls.length = 0;
+    context.codexSidePatchRevealSplit(scope, { panelId }, hostId, foreground);
+    assert.equal(reads.length, 0);
+    assert.equal(calls.length, 0);
+    assert.deepEqual([...values.values()], ["full", true, true]);
+  }
+});
+
 test("sidebar catalog titles match each side tab across legacy, closed and new registry snapshots", () => {
   const storage = storageFixture();
   const identity = { accountId: "account-one", userId: "user-one" };
