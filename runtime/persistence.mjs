@@ -332,6 +332,24 @@ export function presentationOptions(storage, conversation, options) {
 }
 
 /**
+ * Hide inherited turn metadata in the prompt rail's renderer-local query result, including
+ * unloaded turns that would otherwise become hover-preview placeholders. The rail and its
+ * preview/reveal callbacks consume this same projection; native query caches, history reads
+ * and pagination remain untouched. Preserve each retained item's original page cursor,
+ * descending offset and identity so hovering or jumping still resolves the exact side turn.
+ * Loading/completion/error fields are native, and unaffected queries retain their identity.
+ */
+export function navigationHistoryQuery(storage, conversation, query) {
+  if (conversation.hostId !== "local" || query.data == null) return query;
+  const record = readRegistry(storage).records[conversation.id];
+  if (record == null || record.inheritedTurnIds.length === 0) return query;
+  const inherited = inheritedSet(record);
+  const items = query.data.items.filter((item) => !inherited.has(item.turnId));
+  if (items.length === query.data.items.length) return query;
+  return { ...query, data: { ...query.data, items } };
+}
+
+/**
  * Read only a valid creation timestamp in milliseconds. Unknown legacy timestamps sort last;
  * activity, rename and reopen timestamps never stand in for the original creation time.
  */

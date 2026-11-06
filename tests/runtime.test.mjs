@@ -617,6 +617,88 @@ test("side history gaps and partial own turns remain pageable across incomplete 
   assert.equal(complete.historyTimeline.length, 2);
 });
 
+test("prompt rail removes all inherited placeholders while retaining native completion and errors", () => {
+  const storage = storageFixture();
+  persistence.remember(storage, durable(), ["parent-old", "parent-new"]);
+  const items = Object.freeze(["parent-old", "parent-new"].map((turnId, index) =>
+    Object.freeze({ turnId, pageBackwardsCursor: "native-page", descendingOffset: index })));
+  for (const complete of [false, true]) {
+    const error = Error("native refresh failed");
+    const query = Object.freeze({
+      data: Object.freeze({ items, complete }), error, isFetching: true, status: "success",
+    });
+    const view = persistence.navigationHistoryQuery(storage, { id: "side-one", hostId: "local" }, query);
+    assert.deepEqual(view.data.items, []);
+    assert.equal(view.data.complete, complete);
+    assert.strictEqual(view.error, error);
+    assert.equal(view.isFetching, true);
+    assert.equal(view.status, "success");
+    assert.strictEqual(query.data.items, items);
+    assert.equal(query.data.items.length, 2, "native history metadata remains complete");
+  }
+});
+
+test("prompt rail retains unloaded side turns and exact native preview/reveal cursor offsets", () => {
+  const storage = storageFixture();
+  persistence.remember(storage, durable(), ["parent-old", "parent-recent"]);
+  const items = Object.freeze([
+    Object.freeze({ turnId: "parent-old", pageBackwardsCursor: "older-page", descendingOffset: 8 }),
+    Object.freeze({ turnId: "side-unloaded", pageBackwardsCursor: "older-page", descendingOffset: 7 }),
+    Object.freeze({ turnId: "parent-recent", pageBackwardsCursor: "latest-page", descendingOffset: 3 }),
+    Object.freeze({ turnId: "side-loaded", pageBackwardsCursor: "latest-page", descendingOffset: 2 }),
+    Object.freeze({ turnId: "side-newest", pageBackwardsCursor: "latest-page", descendingOffset: 0 }),
+  ]);
+  const query = Object.freeze({ data: Object.freeze({ items, complete: true }), isFetching: false });
+  const view = persistence.navigationHistoryQuery(storage, { id: "side-one", hostId: "local" }, query);
+  assert.deepEqual(view.data.items.map(item => item.turnId), ["side-unloaded", "side-loaded", "side-newest"]);
+  [1, 3, 4].forEach((index, position) => assert.strictEqual(view.data.items[position], items[index]));
+  assert.strictEqual(view.data.items.find(item => item.turnId === "side-unloaded"), items[1]);
+  assert.equal(view.data.items.find(item => item.turnId === "parent-old"), undefined);
+  assert.deepEqual(view.data.items.map(item => item.descendingOffset), [7, 2, 0]);
+  assert.equal(query.data.items.length, 5);
+});
+
+test("prompt rail leaves ordinary, remote, loading and unaffected query snapshots unchanged", () => {
+  const storage = storageFixture();
+  persistence.remember(storage, durable(), ["parent-turn"]);
+  persistence.remember(storage, durable("empty-boundary"), []);
+  const query = { data: { items: [{ turnId: "side-first", descendingOffset: 9 }], complete: false } };
+  for (const conversation of [
+    { id: "side-one", hostId: "local" }, { id: "parent-one", hostId: "local" },
+    { id: "empty-boundary", hostId: "local" }, { id: "side-one", hostId: "remote" },
+  ]) {
+    assert.strictEqual(persistence.navigationHistoryQuery(storage, conversation, query), query);
+  }
+  const unreadable = { readValue: () => { throw Error("should not read registry"); } };
+  for (const data of [undefined, null]) {
+    const loading = { data, status: "pending" };
+    assert.strictEqual(persistence.navigationHistoryQuery(unreadable,
+      { id: "side-one", hostId: "local" }, loading), loading);
+  }
+  const remote = { data: { items: [{ turnId: "parent-turn" }], complete: true } };
+  assert.strictEqual(persistence.navigationHistoryQuery(unreadable,
+    { id: "side-one", hostId: "remote" }, remote), remote);
+});
+
+test("prompt rail uses published boundaries and newly fetched metadata without changing old snapshots", () => {
+  const storage = storageFixture();
+  const conversation = { id: "side-one", hostId: "local" };
+  persistence.remember(storage, durable(), ["parent-turn"]);
+  const query = { data: { items: [{ turnId: "parent-turn" }, { turnId: "side-first" }], complete: false } };
+  const first = persistence.navigationHistoryQuery(storage, conversation, query);
+  const refreshed = { data: { ...query.data, items: [...query.data.items, { turnId: "side-second" }],
+    complete: true } };
+  assert.deepEqual(persistence.navigationHistoryQuery(storage, conversation, refreshed).data.items
+    .map(item => item.turnId), ["side-first", "side-second"]);
+  persistence.remember(storage, durable(), ["parent-turn", "side-first"]);
+  const updated = persistence.navigationHistoryQuery(storage, conversation, refreshed);
+  assert.deepEqual(updated.data.items.map(item => item.turnId), ["side-second"]);
+  assert.deepEqual(first.data.items.map(item => item.turnId), ["side-first"]);
+  assert.equal(first.data.complete, false);
+  assert.equal(updated.data.complete, true);
+  assert.equal(query.data.items.length, 2);
+});
+
 test("boundary reads all pages without transcript bodies and fails on cancellation/cursor loops", async () => {
   const received = [];
   const boundary = await persistence.inheritedBoundary(async (_, params) => {

@@ -435,6 +435,21 @@ E?.();let n=await ev(e,t.hostId,t.conversationId);k?.(n)}"""
     # before merging open, saved-closed and native-only rows into one newest-created-first list.
     name = "async/357959.de4ec41383.js"
     text = source[name]
+    # The standalone transcript's prompt rail reads a separate complete-history metadata query.
+    # Filter its renderer-local result once, before both placeholder projection and hover/reveal
+    # callbacks consume it. Keep rs/ra/rl, native query cache and original cursor offsets intact:
+    # filtering only loaded transcript entries still exposed inherited parent preview text.
+    text = replace_once(
+        text,
+        "zOSz(e,t,n){n.d(t,",
+        'zOSz(e,t,n){const __side=n("SYKY");n.d(t,',
+    )
+    text = replace_once(
+        text,
+        "{data:tf}=(0,a._U)(rs,tg?t:null),tv=",
+        "{data:tf}=__scp.navigationHistoryQuery(__side.codexSidePatchStorage(),"
+        "{id:t,hostId:s},(0,a._U)(rs,tg?t:null)),tv=",
+    )
     text = replace_once(
         text,
         "S5vq(e,t,n){n.d(t,",

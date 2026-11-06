@@ -9,7 +9,7 @@ build 24614 已把渲染层迁移到 Rspack，并提供原生持久 Side Chat �
 当前方案复用新版原生 descriptor、恢复、KV、面板控制器、关系和布局 API，只保留以下补丁职责：
 
 1. 将本地空侧边分叉改为持久线程，并登记历史兼容 registry。
-2. 在 build 24614 的统一时间线中过滤分叉继承轮次及对应位置元数据，不修改原生上下文。
+2. 在统一时间线和独立消息导航条的展示输入中过滤分叉继承轮次，保留原生上下文、完整历史及定位信息。
 3. 为已关闭历史侧边提供发现、恢复，以及左侧“最近”与侧边标签的标题同步。
 4. 提供带归属校验、落盘确认和防陈旧恢复的永久删除事务。
 
@@ -17,7 +17,9 @@ build 24614 已把渲染层迁移到 Rspack，并提供原生持久 Side Chat �
 
 统一时间线选择器响应式订阅原生 registry family，再按同一轮次掩码同步过滤 `conversationTurns`、历史位置和实体键。过滤仅作用于展示输入，原生完整历史查询 `P/N/D` 及分页类保持原厂代码，使隐藏继承轮次也能补齐并结束加载，避免首条消息后的加载圈反复出现和正文跳动。侧边自身历史缺口继续保留，发送中的轮次对象和实时覆盖不变。
 
-实现依据：[本地持久创建](source://codex-side-chat-patch/hooks/local-create.js:270)、[统一时间线过滤](source://codex-side-chat-patch/runtime/persistence.mjs:14041)、[原生历史查询保留](source://codex-side-chat-patch/patchkit/profile.py:5885)、[Rspack 版本适配](source://codex-side-chat-patch/patchkit/profile.py:4363)。
+单独展示会话时，左侧消息导航条另有包含未加载轮次的历史索引。渲染入口按同一继承 ID 边界过滤该查询的本地展示结果，导航刻度、悬停预览和点击跳转共同使用它。保留侧边轮次对象、页游标、页内偏移及完成状态；原生索引查询、缓存、预览读取和分页不变，不增加 RPC、轮询或正文存储。
+
+实现依据：[本地持久创建](source://codex-side-chat-patch/hooks/local-create.js:270)、[统一时间线过滤](source://codex-side-chat-patch/runtime/persistence.mjs:14041)、[导航展示索引](source://codex-side-chat-patch/runtime/persistence.mjs:15927)、[导航渲染入口](source://codex-side-chat-patch/patchkit/profile.py:19465)、[原生历史查询保留](source://codex-side-chat-patch/patchkit/profile.py:5885)、[Rspack 版本适配](source://codex-side-chat-patch/patchkit/profile.py:4363)。
 
 ## 2. 用户入口与语义
 
@@ -25,7 +27,7 @@ build 24614 已把渲染层迁移到 Rspack，并提供原生持久 Side Chat �
 
 列表统一按创建时间降序排列，已打开和已关闭的侧边混合排序。registry 使用首次登记的毫秒时间，原生发现使用已有响应中的秒时间并统一单位；改名、追问和关闭重开不改创建时间。相同时间保持原相对顺序，缺少有效时间的条目放在末尾；不修改输入数组，不增加 RPC 或轮询。
 
-实现依据：[创建时间合并排序](source://codex-side-chat-patch/runtime/persistence.mjs:16766)、[原生时间字段接入](source://codex-side-chat-patch/patchkit/profile.py:19208)。
+实现依据：[创建时间合并排序](source://codex-side-chat-patch/runtime/persistence.mjs:17853)、[原生时间字段接入](source://codex-side-chat-patch/patchkit/profile.py:19208)。
 
 快捷键或菜单前台打开本地右侧聊天时，保留左侧列表和主会话，侧边聊天在旁分栏。原生待加载标签接纳成功后、分叉或恢复请求前，使用 `ZU27.zs/X8` 解除普通及工作区两种全宽状态；不修改保存的默认设置、不重复通知标签、不增加订阅，之后仍可手动放大。后台恢复、底部面板、远程会话及未接纳标签沿用原生流程。
 
@@ -41,7 +43,7 @@ build 24614 已把渲染层迁移到 Rspack，并提供原生持久 Side Chat �
 
 手动改名保留原生文字清理及撤销队列，通过主进程串行更新 registry 和已有布局。重名沿用同一账户/用户/主会话内的编号规则；撤销恢复完整历史标题，显式改名阻止迟到首轮回调覆盖。归属变化或删除状态拒绝改名；落盘失败恢复原名并保留同期布局变化。该流程不调用模型或新增线程改名 RPC。
 
-实现依据：[归属标题读取](source://codex-side-chat-patch/runtime/persistence.mjs:10565)、[缓存摘要投影](source://codex-side-chat-patch/runtime/persistence.mjs:11305)、[原生响应式订阅](source://codex-side-chat-patch/hooks/title-adapter.js:384)、[最终列表行标题](source://codex-side-chat-patch/hooks/sidebar-title.js:281)、[全部标题模块适配](source://codex-side-chat-patch/patchkit/profile.py:23165)、[改名与面板同步](source://codex-side-chat-patch/hooks/title-adapter.js:4674)、[撤销队列接入](source://codex-side-chat-patch/hooks/sidebar-rename.js:0)、[主进程合并](source://codex-side-chat-patch/runtime/main-state.cjs:7126)。
+实现依据：[归属标题读取](source://codex-side-chat-patch/runtime/persistence.mjs:10565)、[缓存摘要投影](source://codex-side-chat-patch/runtime/persistence.mjs:11305)、[原生响应式订阅](source://codex-side-chat-patch/hooks/title-adapter.js:384)、[最终列表行标题](source://codex-side-chat-patch/hooks/sidebar-title.js:281)、[全部标题模块适配](source://codex-side-chat-patch/patchkit/profile.py:23905)、[改名与面板同步](source://codex-side-chat-patch/hooks/title-adapter.js:4674)、[撤销队列接入](source://codex-side-chat-patch/hooks/sidebar-rename.js:0)、[主进程合并](source://codex-side-chat-patch/runtime/main-state.cjs:7126)。
 
 ## 3. 删除接口与日志
 
@@ -58,7 +60,7 @@ build 24614 已把渲染层迁移到 Rspack，并提供原生持久 Side Chat �
 
 发送前重新读取记录并校验账户、用户、来源主会话、host 和目标线程 ID；主会话 ID 不允许作为删除目标。新接入 RPC 通过统一 finally 日志记录忠实 JSON 入参、返回值和完整错误字段。
 
-实现依据：[删除入口绑定](source://codex-side-chat-patch/hooks/delete-adapter.js:3476)、[删除事务](source://codex-side-chat-patch/runtime/persistence.mjs:25207)、[完整 RPC 日志](source://codex-side-chat-patch/runtime/persistence.mjs:19250)。
+实现依据：[删除入口绑定](source://codex-side-chat-patch/hooks/delete-adapter.js:3476)、[删除事务](source://codex-side-chat-patch/runtime/persistence.mjs:26294)、[完整 RPC 日志](source://codex-side-chat-patch/runtime/persistence.mjs:20337)。
 
 ## 4. 删除状态机
 
@@ -79,7 +81,7 @@ registry 记录的可选 `deletion` 字段只有两个阶段：
 
 registry 固定键只保存稳定快照。渲染端命令发布到请求级临时键，主进程按请求 ID 和操作 ID 串行合并，等待原生存储 flush 后才通过独立回执确认，并清理命令和回执键。原生 KV 的乐观发布因此不会让 registry 订阅者读到 mutation envelope。
 
-实现依据：[渲染端原子变更](source://codex-side-chat-patch/runtime/persistence.mjs:21937)、[主进程合并](source://codex-side-chat-patch/runtime/main-state.cjs:13251)、[布局过滤](source://codex-side-chat-patch/runtime/main-state.cjs:3139)、[标签与关系清理](source://codex-side-chat-patch/hooks/delete-adapter.js:375)。
+实现依据：[渲染端原子变更](source://codex-side-chat-patch/runtime/persistence.mjs:23024)、[主进程合并](source://codex-side-chat-patch/runtime/main-state.cjs:13251)、[布局过滤](source://codex-side-chat-patch/runtime/main-state.cjs:3139)、[标签与关系清理](source://codex-side-chat-patch/hooks/delete-adapter.js:375)。
 
 ## 5. 恢复与并发保护
 
@@ -92,7 +94,7 @@ registry 固定键只保存稳定快照。渲染端命令发布到请求级临�
 
 新建 descriptor 带 `patchVersion: 1`。原生恢复在调用恢复 hook 前执行 `nJj6.N` 严格校验，因此 schema 只增加可选的版本 1 字段，兼容历史无标记记录并拒绝未知版本及其他多余字段。原生 `vnuG` 继续等待账号初始化，不增加重试轮询。版本标记保留到恢复流程，历史 descriptor 通过 registry 或 tombstone 识别，避免已完成删除后由旧布局恢复。删除期间的 `turn/start`、`turn/steer`、`thread/resume`、队列写入和 follower 请求均被拒绝。
 
-实现依据：[原生严格恢复校验适配](source://codex-side-chat-patch/patchkit/profile.py:4911)、[历史 descriptor 识别](source://codex-side-chat-patch/runtime/persistence.mjs:12003)、[恢复守卫](source://codex-side-chat-patch/hooks/restore.js:198)、[请求守卫](source://codex-side-chat-patch/runtime/persistence.mjs:31434)。
+实现依据：[原生严格恢复校验适配](source://codex-side-chat-patch/patchkit/profile.py:4911)、[历史 descriptor 识别](source://codex-side-chat-patch/runtime/persistence.mjs:12003)、[恢复守卫](source://codex-side-chat-patch/hooks/restore.js:198)、[请求守卫](source://codex-side-chat-patch/runtime/persistence.mjs:32521)。
 
 ## 6. 失败与重试
 
@@ -108,13 +110,14 @@ registry 固定键只保存稳定快照。渲染端命令发布到请求级临�
 
 ## 7. 验证结论
 
-- 46 个 Node 行为用例通过，覆盖首轮发送中的临时/正式轮次、隐藏历史的分页状态、侧边自身历史缺口，以及创建时间排序、分栏、标题同步、账号隔离、创建、恢复、命名、删除并发、落盘失败和陈旧恢复。
+- 50 个 Node 行为用例通过，覆盖导航条继承占位项、未加载侧边轮次、原生游标/偏移、查询快照，以及首轮发送、历史分页、创建时间排序、分栏、标题、账号隔离、创建、恢复、命名和删除。
 - 32 个 Python 安装事务用例通过。
 - `codex-cli 0.166.0-alpha.6` 隔离协议检查通过：持久分叉、无正文边界分页、重启原 ID、多轮上下文、父会话后续轮次隔离和临时线程语义均符合预期。
 - 12 个 Rspack chunk、1 个主进程资源和 2 个运行时模块通过精确哈希、唯一锚点、Node/Acorn 语法与词法作用域差异检查，没有新增未解析的模块变量。
-- 从固定原包提取的实际 `P/N/D`、分页请求函数和 `e4` 分页类与补丁逐字相同。合成会话登记 63 个继承 ID：旧补丁连续五次补页无法推进隐藏轮次；修复后传统及 canonical 历史均在两页后结束加载，侧边自身分页和实时覆盖保留。状态发布、代理解包和合并使用内存夹具，不访问真实账号；桌面抖动待安装后验收。
+- 实际导航查询 `rs`、索引分页 `ra`、悬停读取 `rl` 和最终导航投影与原包逐字相同。两页合成历史的 3 个继承占位项全部排除，3 个侧边轮次的已加载/未加载问答预览和跳转游标正确，原生索引完整保留 6 个轮次。
+- 实际 `P/N/D`、分页请求函数和 `e4` 分页类与原包逐字相同，传统及 canonical 历史均能在两页后结束隐藏轮次加载，侧边自身分页和实时覆盖保留。验证使用内存夹具，不访问真实账号；导航条及桌面抖动待安装后验收。
 - 实际原生 `nJj6`、`uiXp.eu.durableRoute.restore` 和 `vnuG.restoreDurableSideChat` 合成验证通过：版本 1 与历史 descriptor 恢复原 ID，启动等待账号初始化，未知版本、多余字段、错误标签 ID、异账号/用户、断连和已删除记录均被拒绝。实际 `listAttachedThreads` 与 `S5vq` 验证时间字段传递、秒转毫秒、registry 优先及混合排序。
 - 实际原生 `uiXp.ep`、`ZU27.zs/X8` 和 `gbrq.mC/m_` 的 21 组布局验证通过：分叉/恢复请求未完成时已分栏，完成接纳不重设全宽，之后手动放大继续生效；后台恢复、底部、远程及未接纳标签保持原生行为。
 - 实际原生 `m22M.N/Q`、`N42N.xn/xF`、`PAOI.B`、全部七份 `WRqP.e` 和 `FeCP` 最终标题表达式通过合成状态验证，覆盖缓存/已加载标题、最终行优先级、响应式更新、任务引用及改名/撤销；84 次原生标题分支及归属/删除回退比较通过，侧边改名没有发送原生线程改名 RPC。
-- 新固定证书签名副本通过 ASAR、Electron 框架元数据、完整包深度签名、十五份资源字节及收据校验，ASAR 为 `7f15b3cf1d83760b267d11d9bfcf78ef95bd62c12d0ab16e556a4350a97a341e`。本次仅改变核心 chunk 和渲染运行时两份资源，其余十三份资源相同。
-- 新副本位于 `~/Library/Application Support/CodexSideChatPatch/stages/build-24614-first-send-pagination/`，尚未安装。当前运行应用保持 ASAR `36ad4e16ae0082e904e822a8cbbb122cfdd3e1415a158827191e495d9db94fea`，未退出或重启，安装记录及其原厂回滚包不变；待用户通知后安装并重启，再验收首轮发送、恢复、分栏和标题。
+- 新固定证书签名副本通过 ASAR、Electron 框架元数据、完整包深度签名、十五份资源字节及收据校验，ASAR 为 `0ac74874aa159ed0a59b4b686d832e5c83afd0c4921f11f4872ca7dc94f4ec30`。副本同时包含首轮发送抖动修复；相较上一份已验证待安装副本，仅导航 chunk 和渲染运行时变化，其余十三份资源相同。
+- 新副本位于 `~/Library/Application Support/CodexSideChatPatch/stages/build-24614-side-overview/`，尚未安装。当前运行应用保持 ASAR `36ad4e16ae0082e904e822a8cbbb122cfdd3e1415a158827191e495d9db94fea`，未退出或重启，安装记录及其原厂回滚包不变。后续获准安装后由用户自行重启，再验收导航条、首轮发送、恢复、分栏和标题；单纯重启当前应用不会加载待安装修复。
