@@ -291,23 +291,12 @@ export function assertUsable(storage, durable, accountId, userId) {
 }
 
 /**
- * Filter inherited turns only in the renderer's presentation selector.
- * The input and native history remain intact; no server context is rewritten or truncated.
- * Exact IDs work for incomplete pages, canonical history and later parent turns.
- */
-export function displayTurns(storage, conversation, turns) {
-  if (conversation.hostId !== "local") return turns;
-  const record = readRegistry(storage).records[conversation.id ?? conversation.conversationId];
-  if (record == null) return turns;
-  const inherited = inheritedSet(record);
-  if (!turns.some((turn) => inherited.has(turn.turnId))) return turns;
-  return turns.filter((turn) => !inherited.has(turn.turnId));
-}
-
-/**
- * Adapt the unified timeline's presentation inputs without changing the canonical history.
+ * Filter inherited turns exclusively at the unified timeline's presentation boundary.
+ * Native history access, canonical/live merges and item pagination must see the complete input;
+ * a hidden partial turn still needs its original cursor to load and reach hasLoadedOldest.
  * Keep turn/entity/position arrays aligned, remove only loaded inherited content positions,
- * and retain native gap entries so pagination can still load missing side turns.
+ * and retain native gap entries so pagination can still load missing side turns. Turn objects
+ * remain shared with native state, including live first-turn items and pagination metadata.
  */
 export function presentationOptions(storage, conversation, options) {
   if (conversation.hostId !== "local") return options;

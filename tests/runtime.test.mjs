@@ -311,16 +311,20 @@ test("display caches preserve new boundaries and evict old sets instead of growi
     };
   }
   for (let index = 0; index < 5; index++) {
-    persistence.displayTurns(storage, { hostId: "local", id: "side-" + index }, turns);
+    persistence.presentationOptions(storage, { hostId: "local", id: "side-" + index },
+      { conversationTurns: turns });
   }
-  persistence.displayTurns(storage, { hostId: "local", id: "side-4" }, turns);
+  persistence.presentationOptions(storage, { hostId: "local", id: "side-4" },
+    { conversationTurns: turns });
   assert.equal(counts[4], 1);
-  persistence.displayTurns(storage, { hostId: "local", id: "side-0" }, turns);
+  persistence.presentationOptions(storage, { hostId: "local", id: "side-0" },
+    { conversationTurns: turns });
   assert.equal(counts[0], 2, "fifth distinct boundary must evict the oldest retained set");
   value = { version: 1, records: {
     "side-0": { ...value.records["side-0"], inheritedTurnIds: ["own-side"] },
   } };
-  const display = persistence.displayTurns(storage, { hostId: "local", id: "side-0" }, turns);
+  const display = persistence.presentationOptions(storage, { hostId: "local", id: "side-0" },
+    { conversationTurns: turns }).conversationTurns;
   assert.deepEqual(display.map(turn => turn.turnId), ["parent-0"]);
   const oversized = Array.from({ length: 20001 }, (_, index) => "large-" + index);
   let builds = 0;
@@ -334,7 +338,8 @@ test("display caches preserve new boundaries and evict old sets instead of growi
   const largeTurns = [{ turnId: "large-20000" }, { turnId: "own-side" }];
   for (let index = 0; index < 2; index++) {
     assert.deepEqual(
-      persistence.displayTurns(storage, { hostId: "local", id: "large" }, largeTurns)
+      persistence.presentationOptions(storage, { hostId: "local", id: "large" },
+        { conversationTurns: largeTurns }).conversationTurns
         .map(turn => turn.turnId), ["own-side"],
     );
   }
@@ -506,7 +511,7 @@ test("actual summary hook reads the native KV family with a key and preserves re
   assert.equal(selector({ get, scope }, nativeRows).length, 3);
 });
 
-test("legacy and unified presentation hide inherited history while canonical context stays intact", () => {
+test("unified presentation hides inherited history while canonical context stays intact", () => {
   const storage = storageFixture();
   persistence.remember(storage, durable(), ["parent-old", "parent-new"]);
   const turns = [
@@ -516,11 +521,6 @@ test("legacy and unified presentation hide inherited history while canonical con
     { turnId: "side-pending", items: [{ type: "imageGeneration", src: "side-attachment" }] },
   ];
   const before = structuredClone(turns);
-  assert.deepEqual(
-    persistence.displayTurns(storage, { id: "side-one", hostId: "local" }, turns)
-      .map((turn) => turn.turnId),
-    ["side-first", "side-pending"],
-  );
   const options = {
     conversationTurns: turns,
     turnEntityKeys: ["entity-p1", "entity-s1", "entity-p2", "entity-s2"],
@@ -543,7 +543,78 @@ test("legacy and unified presentation hide inherited history while canonical con
   assert.deepEqual(turns, before);
   assert.equal(options.historyTimeline.length, 5);
   assert.equal(view.subagentParentThreadId, null);
-  assert.strictEqual(persistence.displayTurns(storage, { id: "parent-one", hostId: "local" }, turns), turns);
+  for (const conversation of [
+    { id: "parent-one", hostId: "local" }, { id: "side-one", hostId: "remote" },
+  ]) {
+    assert.strictEqual(persistence.presentationOptions(storage, conversation, options), options);
+  }
+});
+
+test("first side send preserves live admission and hidden partial history without mutating native state", () => {
+  const storage = storageFixture();
+  const inheritedIds = Array.from({ length: 63 }, (_, index) => `parent-${index}`);
+  persistence.remember(storage, durable(), inheritedIds);
+  /** Loaded parent summaries retain incomplete cursors while the first side turn is admitted. */
+  const inherited = inheritedIds.map(turnId => Object.freeze({
+    turnId, items: Object.freeze([]),
+    itemsPagination: Object.freeze({ hasLoadedOldest: false, olderCursor: `items:${turnId}` }),
+  }));
+  const pending = Object.freeze({
+    turnId: null, pendingUserMessageAdmission: true,
+    params: Object.freeze({ clientUserMessageId: "first-message", input: ["first"] }),
+    items: Object.freeze([{ type: "userMessage", clientId: "first-message" }]),
+  });
+  const active = Object.freeze({
+    turnId: "side-first", status: "inProgress", params: pending.params,
+    items: Object.freeze([{ type: "agentMessage", text: "streaming" }]),
+  });
+  for (const live of [[pending], [pending, active], [active]]) {
+    const turns = Object.freeze([...inherited, ...live]);
+    const view = persistence.presentationOptions(storage, { id: "side-one", hostId: "local" },
+      { conversationTurns: turns });
+    assert.deepEqual(view.conversationTurns, live);
+    live.forEach((turn, index) => assert.strictEqual(view.conversationTurns[index], turn));
+    assert.equal(turns.length, 63 + live.length);
+    assert.ok(inherited.every(turn => turn.itemsPagination.hasLoadedOldest === false));
+  }
+});
+
+test("side history gaps and partial own turns remain pageable across incomplete and complete snapshots", () => {
+  const storage = storageFixture();
+  persistence.remember(storage, durable(), ["parent-last"]);
+  /** A gap between side turns represents omitted side history and must never be hidden. */
+  const olderSide = { turnId: "side-old", items: [],
+    itemsPagination: { hasLoadedOldest: false, olderCursor: "older-items" } };
+  const newestSide = { turnId: "side-new", items: [] };
+  const gap = Object.freeze({
+    type: "gap", key: "missing-side-history",
+    newerBoundaryRef: Object.freeze({ handle: { cursor: "older-side-turns" } }),
+  });
+  const options = {
+    conversationTurns: [{ turnId: "parent-last", items: [] }, olderSide, newestSide],
+    historyEntriesByTurnIndex: [
+      { positionKey: "parent", entityKey: "turn:parent-last" },
+      { positionKey: "old", entityKey: "turn:side-old" },
+      { positionKey: "new", entityKey: "turn:side-new" },
+    ],
+    historyTimeline: [
+      { type: "content", key: "parent", value: "turn:parent-last" },
+      { type: "content", key: "old", value: "turn:side-old" }, gap,
+      { type: "content", key: "new", value: "turn:side-new" },
+    ],
+  };
+  const before = structuredClone(options);
+  const view = persistence.presentationOptions(storage, { id: "side-one", hostId: "local" }, options);
+  assert.deepEqual(view.historyTimeline.map(entry => entry.key), ["old", "missing-side-history", "new"]);
+  assert.strictEqual(view.historyTimeline[1], gap);
+  assert.strictEqual(view.conversationTurns[0].itemsPagination, olderSide.itemsPagination);
+  assert.deepEqual(options, before);
+  olderSide.itemsPagination = { hasLoadedOldest: true, olderCursor: null };
+  const complete = persistence.presentationOptions(storage, { id: "side-one", hostId: "local" },
+    { ...options, historyTimeline: options.historyTimeline.filter(entry => entry !== gap) });
+  assert.deepEqual(complete.conversationTurns.map(turn => turn.turnId), ["side-old", "side-new"]);
+  assert.equal(complete.conversationTurns[0].itemsPagination.hasLoadedOldest, true);
+  assert.equal(complete.historyTimeline.length, 2);
 });
 
 test("boundary reads all pages without transcript bodies and fails on cancellation/cursor loops", async () => {

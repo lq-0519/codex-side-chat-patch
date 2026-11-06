@@ -124,14 +124,16 @@ def build_replacements(archive):
         "return{id:n,title:e.name,hasUnreadTurn:",
         "return{id:n,title:e.name,createdAt:e.createdAt,hasUnreadTurn:",
     )
-    text = replace_once(
-        text,
+    # Native N also resolves turns for item pagination, not just for rendering. Keep its complete
+    # canonical/live merge byte-for-byte: P finds inherited partial turns and D must still find
+    # those same turns so loading can advance their cursors. Filtering N made older-page loads
+    # report work without completing it and repeatedly toggled the transcript's loading row.
+    # Verify this exact accessor even though only the unified presentation selector is adapted.
+    history_accessor = (
         'function N(e,t){let n=P(e);return e.turnHistory?.kind==="canonical"?'
-        '(0,w.H)(n,e.turns,{policy:t}):n}',
-        'function N(e,t){let n=P(e);return __scp.displayTurns('
-        'codexSidePatchStorage(),e,e.turnHistory?.kind==="canonical"?'
-        '(0,w.H)(n,e.turns,{policy:t}):n)}',
+        '(0,w.H)(n,e.turns,{policy:t}):n}'
     )
+    text = replace_once(text, history_accessor, history_accessor)
     # The unified timeline owns the visible transcript in build 24614. Subscribe its selector to
     # the native registry family, then remove inherited side-fork turns with aligned metadata.
     text = replace_once(
