@@ -528,7 +528,7 @@ test("unified presentation hides inherited history while canonical context stays
       entityKey: `entity-${index}`, positionKey: `position-${index}`,
     })),
     historyTimeline: [
-      { type: "gap", key: "pagination-gap" },
+      { type: "gap", key: "inherited-pagination-gap" },
       ...turns.map((_, index) => ({
         type: "content", key: `position-${index}`, value: `entity-${index}`,
       })),
@@ -538,8 +538,7 @@ test("unified presentation hides inherited history while canonical context stays
   const view = persistence.presentationOptions(storage, { id: "side-one", hostId: "local" }, options);
   assert.deepEqual(view.conversationTurns.map((turn) => turn.turnId), ["side-first", "side-pending"]);
   assert.deepEqual(view.turnEntityKeys, ["entity-s1", "entity-s2"]);
-  assert.deepEqual(view.historyTimeline.map((entry) => entry.key),
-    ["pagination-gap", "position-1", "position-3"]);
+  assert.deepEqual(view.historyTimeline.map((entry) => entry.key), ["position-1", "position-3"]);
   assert.deepEqual(turns, before);
   assert.equal(options.historyTimeline.length, 5);
   assert.equal(view.subagentParentThreadId, null);

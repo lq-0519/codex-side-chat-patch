@@ -344,12 +344,44 @@ export function assertUsable(storage, durable, accountId, userId) {
 }
 
 /**
+ * Remove only timeline gaps whose newer end is inside the saved inherited prefix.
+ * Creation records every existing turn before accepting any side message, so history older
+ * than a known inherited turn cannot contain an own side turn. Native older-page handles
+ * carry oldestLoadedTurnId even when that turn's content is absent from a transient snapshot.
+ * Walk backward to classify the nearest newer content without scanning once per gap.
+ * Unknown boundaries, gaps before own turns, and trailing/newer gaps remain pageable.
+ * This changes only render input; native islands, handles and completion state stay intact.
+ */
+function presentationTimeline(timeline, inherited, positions, entities) {
+  if (timeline == null) return timeline;
+  const projected = [];
+  let newerContentInherited = false;
+  for (let index = timeline.length - 1; index >= 0; index--) {
+    const entry = timeline[index];
+    if (entry.type === "content") {
+      newerContentInherited = positions.has(entry.key) || entities.has(entry.value) ||
+        (typeof entry.value === "string" && entry.value.startsWith("turn:") &&
+          inherited.has(entry.value.slice(5)));
+      if (!newerContentInherited) projected.push(entry);
+      continue;
+    }
+    const boundary = entry.newerBoundaryRef;
+    const inheritedOlderPage = boundary?.edge === "older" &&
+      inherited.has(boundary.handle?.oldestLoadedTurnId);
+    if (entry.type !== "gap" || (!newerContentInherited && !inheritedOlderPage)) {
+      projected.push(entry);
+    }
+  }
+  return projected.reverse();
+}
+
+/**
  * Filter inherited turns exclusively at the unified timeline's presentation boundary.
  * Native history access, canonical/live merges and item pagination must see the complete input;
  * a hidden partial turn still needs its original cursor to load and reach hasLoadedOldest.
- * Keep turn/entity/position arrays aligned, remove only loaded inherited content positions,
- * and retain native gap entries so pagination can still load missing side turns. Turn objects
- * remain shared with native state, including live first-turn items and pagination metadata.
+ * Keep turn/entity/position arrays aligned; inherited content and its proven older gaps must
+ * not create loader rows above the first side message. Other native gaps retain pagination.
+ * Turn objects remain shared with native state, including live items and pagination metadata.
  */
 export function presentationOptions(storage, conversation, options) {
   if (conversation.hostId !== "local") return options;
@@ -374,10 +406,7 @@ export function presentationOptions(storage, conversation, options) {
     conversationTurns: options.conversationTurns.filter((_, index) => keep[index]),
     historyEntriesByTurnIndex: options.historyEntriesByTurnIndex?.filter((_, index) => keep[index]),
     turnEntityKeys: options.turnEntityKeys?.filter((_, index) => keep[index]),
-    historyTimeline: options.historyTimeline?.filter(
-      (entry) => entry.type !== "content" ||
-        (!positions.has(entry.key) && !entities.has(entry.value)),
-    ),
+    historyTimeline: presentationTimeline(options.historyTimeline, inherited, positions, entities),
     inheritedHistoryPositionKeys: undefined,
     parentConversationTurns: [],
     subagentParentThreadId: null,
