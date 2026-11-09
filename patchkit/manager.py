@@ -632,6 +632,8 @@ def main(argv=None):
     apply_parser.add_argument("--try-updated-version", action="store_true")
     commands.add_parser("rollback")
     commands.add_parser("recover")
+    update_parser = commands.add_parser("updates", help="Control native software updates on next launch")
+    update_parser.add_argument("action", choices=("status", "enable", "disable"))
     watch_parser = commands.add_parser("watch")
     watch_parser.add_argument("--interval", type=float, default=30)
     launch_parser = commands.add_parser("launch", help="Check/reapply if stopped, then open the existing app")
@@ -657,6 +659,12 @@ def main(argv=None):
             result = rollback(args.app, args.state_dir)
         elif args.command == "recover":
             result = recover(args.state_dir)
+        elif args.command == "updates":
+            from .update_policy import read_policy, set_policy
+            result = (
+                read_policy(args.state_dir) if args.action == "status"
+                else set_policy(args.state_dir, args.action == "enable")
+            )
         elif args.command in ("launch", "create-launcher"):
             from .launcher import create_launcher, launch
             if args.command == "launch":

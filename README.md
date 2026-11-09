@@ -4,7 +4,7 @@
 
 完整 Git 仓库位于 `/Users/bytedance/projects/codex-side-chat-patch`，可以直接用 GoLand 打开这个目录。
 
-当前运行的 `/Applications/ChatGPT.app` 为 build 25894 原厂版本。主会话打不开的 RPC 调用问题已修复，已签名副本在应用外准备，等待用户手动退出后安装并启动。补丁继续包含首轮发送抖动与独立侧边会话消息导航概览修复，界面效果由用户验收。
+当前运行的 `/Applications/ChatGPT.app` 为 build 25894 原厂版本。主会话打不开的 RPC 调用问题已修复，补丁增加默认关闭的原生软件更新开关；已签名副本在应用外准备，等待用户手动退出后安装并启动。补丁继续包含首轮发送抖动与独立侧边会话消息导航概览修复，界面效果由用户验收。
 
 补丁更新须先为新 build 完成严格适配和签名副本校验，再退出应用、原子安装并正常启动。仅点击原应用图标不会执行补丁升级。
 
@@ -31,11 +31,29 @@ Codex 的本地引擎已经支持持久线程，但原侧边创建走临时模�
 
 本机本地会话的创建能力判断增加 ChatGPT 模式例外，菜单、现有快捷键和创建函数共用这一判断。按原有快捷键打开侧边栏后，使用现有入口即可继续添加；上下文继承及保存流程复用上述实现。云端和远程 host 保持原行为。
 
-`codex_side_patch.py` 是补丁管理入口。`stage` 复制完整原应用，在副本的 `app.asar` 中替换 34 个渲染端 Rspack chunk 和一个主进程资源，增加两份运行时模块，更新 ASAR 头、plist 和框架中的元数据摘要后重签；`apply` 将已验证的完整副本安装到原应用路径，同时保留完整原包。框架适配保留启用标志、版本和 ASAR 完整性校验。保存、恢复及删除逻辑由应用内部执行。
+`codex_side_patch.py` 是补丁管理入口。`stage` 复制完整原应用，在副本的 `app.asar` 中替换 34 个渲染端 Rspack chunk 和两个主进程资源，增加三份运行时模块，更新 ASAR 头、plist 和框架中的元数据摘要后重签；`apply` 将已验证的完整副本安装到原应用路径，同时保留完整原包。框架适配保留启用标志、版本和 ASAR 完整性校验。保存、恢复及删除逻辑由应用内部执行。
 
 兼容 registry 的固定键只发布已验证的稳定快照。渲染端变更命令使用请求级临时键，主进程落盘确认后通过独立回执返回，并清理命令与回执键，避免原生 KV 的乐观发布把命令 envelope 暴露给 registry 订阅者。
 
 安装成功后，当前 build 唯一保留的完整原厂回滚包路径记录在 `~/Library/Application Support/CodexSideChatPatch/installation.json` 的 `backup` 字段。软件更新后不可用旧记录覆盖当前新版本。补丁运行时不需要常驻 Python 进程。
+
+## 软件更新开关
+
+安装补丁后，CodeX 应用菜单提供 **允许 CodeX 软件更新（下次启动生效）** 复选项。默认关闭；勾选后恢复原厂更新流程和“检查更新”入口，取消勾选后再次关闭。每次切换后自行用 ⌘Q 完全退出，再启动 CodeX。
+
+启动入口在任何原厂初始化代码执行前读取 `~/Library/Application Support/CodexSideChatPatch/update-policy.json`，设置原生 `CODEX_SPARKLE_ENABLED` 总开关。关闭时不初始化 Sparkle，不注册更新 IPC 或更新定时器，手动检查、下载、安装及启动故障恢复均不能启动更新组件。既有下载文件不删除，但更新组件不会恢复安装。普通业务请求继续使用原流程。
+
+配置缺失、损坏或不可读取时均关闭更新。选择使用 0600 文件和原子替换保存，不增加常驻进程、监听器或轮询。已启动的原厂 Sparkle 没有停止接口，所以切换无法取消当前进程已经开始的下载或安装；新设置在下一次启动完整生效。回滚原厂或官方更新替换补丁后，更新控制需重新安装对应版本的适配补丁才能生效。
+
+不打开应用也可通过命令切换：
+
+```sh
+python3 -B codex_side_patch.py updates status
+python3 -B codex_side_patch.py updates disable
+python3 -B codex_side_patch.py updates enable
+```
+
+这些命令只读写开关，不安装、退出或启动 CodeX。本机另有 `~/Library/Application Support/CodexSideChatPatch/关闭CodeX软件更新.command` 和同目录的 `开启CodeX软件更新.command` 双击入口。应用始终读取上述当前用户目录的配置；自定义 `--state-dir` 仅改变 CLI 操作的配置位置。
 
 ## 支持范围
 
@@ -60,7 +78,7 @@ cd /Users/bytedance/projects/codex-side-chat-patch
 python3 -B codex_side_patch.py status
 ```
 
-本次已准备的严格修复副本位于 `~/Library/Application Support/CodexSideChatPatch/stages/build-25894-main-rpc-fixed/`。用户用 ⌘Q 完全退出 CodeX 后，双击 `~/Library/Application Support/CodexSideChatPatch/安装修复并启动CodeX.command`，或执行：
+本次已准备的严格修复副本位于 `~/Library/Application Support/CodexSideChatPatch/stages/build-25894-main-rpc-update-switch/`。用户用 ⌘Q 完全退出 CodeX 后，双击 `~/Library/Application Support/CodexSideChatPatch/安装修复并启动CodeX.command`，或执行：
 
 ```sh
 "$HOME/Library/Application Support/CodexSideChatPatch/安装修复并启动CodeX.command"
@@ -194,7 +212,7 @@ python3 -B codex_side_patch.py watch --interval 30
 自动化检查使用合成身份、轮次和微型应用包，不读取真实会话：
 
 ```sh
-node --test tests/runtime.test.mjs tests/deletion.test.mjs
+node --test tests/runtime.test.mjs tests/deletion.test.mjs tests/update-policy.test.mjs
 python3 -B -m unittest discover -s tests -p 'test_*.py' -v
 git diff --check
 ```
@@ -209,7 +227,7 @@ python3 -B tests/native_protocol_probe.py \
 
 该检查验证：持久分叉、无正文的继承边界分页、重启后原 ID、多轮历史及继续追问上下文、后续父轮次隔离、临时线程失效、旧临时线程迁移失败，以及原生永久删除后父会话保留、被删侧边无法在重启后恢复。完整 RPC 输入、输出、错误写入外部 JSON 日志，响应夹具与结果也写入指定目录。桌面应用不会被退出或重启。
 
-当前 54 个 Node 用例和 32 个 Python 用例全部通过，覆盖导航条、首轮发送、历史分页、排序、持久化、分栏、标题、账号隔离、删除并发、落盘失败和安装事务，包含 callable 代理、异步 RPC 原生 receiver、重连、身份切换与卸载后返回句柄的验证。另有三份原生 RPC factory 的 MessagePort 检查，验证主会话恢复、首页、置顶/MCP 查询、原生返回值流水线、订阅释放及删除守卫。37 份资源通过精确哈希、唯一锚点及 Node 语法检查。
+当前 61 个 Node 用例和 36 个 Python 用例全部通过，覆盖导航条、首轮发送、历史分页、排序、持久化、分栏、标题、账号隔离、删除并发、落盘失败、安装事务和更新开关，包含 callable 代理、异步 RPC 原生 receiver、重连、身份切换与卸载后返回句柄的验证。另有三份原生 RPC factory 的 MessagePort 检查，以及三项原生更新代码检查；更新检查通过合成 Sparkle 绑定验证关闭后没有 IPC、定时器、组件加载、下载或安装恢复，开启后保留原厂流程。39 份资源通过精确哈希、唯一锚点及 Node 语法检查。
 
 验证当前原厂或已签名副本中的实际 RPC factory：
 
@@ -217,9 +235,15 @@ python3 -B tests/native_protocol_probe.py \
 node tests/native_rpc_probe.mjs --asar /Applications/ChatGPT.app/Contents/Resources/app.asar
 ```
 
+验证固定原厂 ASAR 中的实际更新 gate 和管理类，不启动应用或访问更新服务器：
+
+```sh
+node tests/native_update_probe.mjs --asar /Applications/ChatGPT.app/Contents/Resources/app.asar
+```
+
 原生历史读取、canonical/live 合并和导航分页继续使用完整数据。展示过滤仅作用于时间线参数与导航查询投影，保留侧边轮次原始游标、偏移、未加载状态和实时覆盖；原生预览与跳转逻辑继续处理这些原始标识。自动化验证使用合成会话，不读取真实账号数据。
 
-当前已安装原厂 ASAR 为 `a77588b2dcfa9b394d722dd8c2c8b13d3a09bacd49c839cc715245742dba6048`；修复副本 ASAR 为 `24b79f6913c83862108b42e77ffaac13f9f32cf6ecffe373ec0df3793fbce283`，使用固定证书 `659A2CD838DF7ADCB88F313BDE6572A223C4923C`。副本完整签名、两层 Electron 元数据及 stage 收据已验证，等待用户安装。旧补丁副本、回滚包和自动启动入口已清理，保留会话数据。用户完成安装后，以新生成的 `installation.json` 为回滚依据。
+当前已安装原厂 ASAR 为 `a77588b2dcfa9b394d722dd8c2c8b13d3a09bacd49c839cc715245742dba6048`；包含主会话修复及更新开关的副本 ASAR 为 `f8733cac67a72dca52a7df293653952d6f5dc17610bbc60f7167ccd1da59ad11`，使用固定证书 `659A2CD838DF7ADCB88F313BDE6572A223C4923C`。副本完整签名、两层 Electron 元数据及 stage 收据已验证，等待用户安装。旧补丁副本、回滚包和自动启动入口已清理，保留会话数据。用户完成安装后，以新生成的 `installation.json` 为回滚依据。
 
 用户已确认原快捷键可以新建空侧边聊天，且统一时间线不显示继承的主会话历史。前台分栏、手动放大、左侧标题及恢复后的显示由用户完成界面验收。关闭后从主会话 Side chats 重开、正常退出并重启后继续追问、标签恢复及重签后的重新登录、钥匙串和实际系统权限仍需完整验收。工具、图片、附件、超长历史、压缩和生成中强制退出尚未完成桌面验证。
 

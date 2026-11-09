@@ -67,10 +67,12 @@ MODULE_COPY_COUNTS = {
     "N42N": 1, "kB0c": 1, "uiXp": 4, "AqOV": 4, "vBFC": 5,
     "uqEk": 9, "OUOZ": 9, "WRqP": 15, "aVy5": 1, "OMEl": 2, "KVWT": 1, "x9Bi": 1,
 }
-# MAIN_ASSETS independently pins native main-process persistence and deletion coordination.
+# MAIN_ASSETS pins native persistence/menu and the earliest updater bootstrap independently.
 MAIN_ASSETS = {
     ".vite/build/early-bootstrap-815-e030c49be4b9c405.js":
         "67c10f58239453fba595f83917fda3756ac2f40ef87fe5f70dd143d4ecef6ad1",
+    ".vite/build/early-bootstrap.js":
+        "5fb7f97bb289c4672d3d9e0cbb5e3352ecafa9c9224de20825b2a9f9770fa8ec",
 }
 # ROOT locates tracked implementation templates; all extraction output remains outside Git.
 ROOT = Path(__file__).resolve().parents[1]
@@ -447,15 +449,27 @@ def build_replacements(archive):
         original = read_file(archive, name)
         if sha256_bytes(original) != digest:
             raise ValueError("Unknown original main-process asset: " + name)
+        if name == ".vite/build/early-bootstrap.js":
+            result[name] = (
+                b'require("./codex-native-update-policy-v1.cjs").initialize();\n' + original
+            )
+            continue
         text = replace_once(
             original.decode("utf-8"), "updatePersistedAtomState(e,t,r,n){",
             "updatePersistedAtomState(e,t,r,n){"
             "let __sideState=__codexSideState.handle(this,e,t,r);"
             "if(__sideState.handled)return;r=__sideState.value;",
         )
+        text = replace_once(
+            text, 'e2=[ef,{type:"separator"},B,...a?[e0]:[],Q,',
+            'e2=[ef,{type:"separator"},B,...n?[__codexUpdatePolicy.menuItem(er.dialog)]:[],'
+            '...a?[e0]:[],Q,',
+        )
         result[name] = ('const __codexSideState=require("./codex-native-side-state-v1.cjs");\n'
+                        'const __codexUpdatePolicy=require("./codex-native-update-policy-v1.cjs");\n'
                         + text).encode("utf-8")
     result[".vite/build/codex-native-side-state-v1.cjs"] = (ROOT / "runtime/main-state.cjs").read_bytes()
+    result[".vite/build/codex-native-update-policy-v1.cjs"] = (ROOT / "runtime/update-policy.cjs").read_bytes()
     return result
 
 
@@ -469,5 +483,6 @@ def implementation_digest():
         ROOT / "hooks/sidebar-title.js", ROOT / "hooks/sidebar-rename.js",
         ROOT / "hooks/side-list.js", ROOT / "hooks/summary.js",
         ROOT / "patchkit/manager.py", ROOT / "patchkit/integrity.py",
+        ROOT / "runtime/update-policy.cjs", ROOT / "patchkit/update_policy.py",
     ]
     return sha256_bytes(b"".join(path.read_bytes() for path in files))
