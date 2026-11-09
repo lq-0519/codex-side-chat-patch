@@ -50,12 +50,14 @@ const guardedRpcs = new WeakMap();
  * Workers have no renderer KV snapshot, so the guard belongs to this boundary. Every callable
  * retains the native receiver, including private-field methods and Symbol.dispose. Return
  * values and asynchronous cancellation handles pass through without another promise layer.
+ * RpcStub/RpcPromise turn string property access into remote paths: never read their .bind,
+ * .call or .apply properties. Reflect.apply invokes the callable itself without extending a path.
  */
 export function guardedSideRpc(storage, hostId, rpc) {
   if (hostId !== "local") return rpc;
   let guarded = guardedRpcs.get(rpc);
   if (guarded != null) return guarded;
-  /** Memoize bound methods so repeated native selectors keep stable function identities. */
+  /** Memoize forwarding functions so repeated native selectors keep stable function identities. */
   const methods = new Map();
   /** Higher-level native operations may dispatch a turn/resume without calling facade.sendRequest. */
   const dispatch = new Set([
@@ -68,12 +70,12 @@ export function guardedSideRpc(storage, hostId, rpc) {
       if (typeof native !== "function") return native;
       if (methods.has(property)) return methods.get(property);
       if (property !== "sendRequest" && !dispatch.has(property) && property !== "dup") {
-        const bound = native.bind(target);
+        const bound = (...args) => Reflect.apply(native, target, args);
         methods.set(property, bound);
         return bound;
       }
       const wrapped = (...args) => {
-        if (property === "dup") return guardedSideRpc(storage, hostId, native.apply(target, args));
+        if (property === "dup") return guardedSideRpc(storage, hostId, Reflect.apply(native, target, args));
         if (property === "sendRequest") guardSideRequest(storage, hostId, args[0], args[1]);
         else {
           const input = args[0];
@@ -81,7 +83,7 @@ export function guardedSideRpc(storage, hostId, rpc) {
           guardSideRequest(storage, hostId,
             property.startsWith("resume") ? "thread/resume" : "turn/start", { threadId });
         }
-        return native.apply(target, args);
+        return Reflect.apply(native, target, args);
       };
       methods.set(property, wrapped);
       return wrapped;

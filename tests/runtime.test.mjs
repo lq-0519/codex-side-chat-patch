@@ -794,6 +794,48 @@ test("renderer RPC guard blocks pending and completed deletions while preserving
   assert.ok(calls.every(call => call[0] === true), "native private receivers survive every wrapper");
 });
 
+test("RPC guard invokes callable proxies without extending bind/apply paths or replacing handles", () => {
+  const storage = storageFixture();
+  const calls = [];
+  const handle = Object.freeze({ then() {}, cancel() {}, [Symbol.dispose]() {} });
+  /** Emulate native callable properties whose .bind/.apply/.call access creates a remote RPC path. */
+  const method = (name, invoke) => new Proxy(function () {}, {
+    get(_, property) {
+      if (typeof property === "string") throw Error(`Unexpected remote path ${name}.${property}`);
+    },
+    apply(_, receiver, args) {
+      assert.strictEqual(receiver, native);
+      calls.push([name, args]);
+      return invoke?.(...args) ?? handle;
+    },
+  });
+  const native = {
+    resumeConversation: method("resumeConversation"),
+    ensureConversationFirstPage: method("ensureConversationFirstPage"),
+    findPinnedThreadIds: method("findPinnedThreadIds"),
+    listMcpServers: method("listMcpServers"),
+    sendRequest: method("sendRequest"),
+    subscribe: method("subscribe"),
+    dup: method("dup", () => native),
+    [Symbol.dispose]: method("dispose"),
+  };
+  const rpc = persistence.guardedSideRpc(storage, "local", native);
+  for (const name of ["resumeConversation", "ensureConversationFirstPage", "findPinnedThreadIds",
+    "listMcpServers", "subscribe"]) {
+    assert.strictEqual(rpc[name], rpc[name]);
+    assert.strictEqual(rpc[name]({ conversationId: "ordinary-main" }), handle);
+  }
+  assert.strictEqual(rpc.sendRequest("thread/resume", { threadId: "ordinary-main" }), handle);
+  assert.strictEqual(rpc.dup(), rpc);
+  storage.writeValue(persistence.DELETED_KEY, { "deleted-side": true });
+  const before = calls.length;
+  assert.throws(() => rpc.resumeConversation({ conversationId: "deleted-side" }), /deleted/);
+  assert.throws(() => rpc.sendRequest("turn/start", { threadId: "deleted-side" }), /deleted/);
+  assert.equal(calls.length, before);
+  rpc[Symbol.dispose]();
+  assert.equal(calls.at(-1)[0], "dispose");
+});
+
 /**
  * Evaluate the actual version adapter's creation function with native API-shaped services.
  * The fixture records side-boundary policy, persistent fork flags and cancelled-thread cleanup.
