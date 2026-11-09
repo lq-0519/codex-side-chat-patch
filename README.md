@@ -4,7 +4,7 @@
 
 完整 Git 仓库位于 `/Users/bytedance/projects/codex-side-chat-patch`，可以直接用 GoLand 打开这个目录。
 
-当前运行的 `/Applications/ChatGPT.app` 为 build 25894 原厂版本。主会话打不开的 RPC 调用问题已修复，补丁增加默认关闭的原生软件更新开关；已签名副本在应用外准备，等待用户手动退出后安装并启动。补丁继续包含首轮发送抖动与独立侧边会话消息导航概览修复，界面效果由用户验收。
+当前运行的 `/Applications/ChatGPT.app` 已安装 build 25894 修复补丁并正常启动，包含主会话 RPC 修复和默认关闭的原生软件更新开关。补丁继续包含首轮发送抖动与独立侧边会话消息导航概览修复，界面效果由用户验收。
 
 补丁更新须先为新 build 完成严格适配和签名副本校验，再退出应用、原子安装并正常启动。仅点击原应用图标不会执行补丁升级。
 
@@ -78,13 +78,13 @@ cd /Users/bytedance/projects/codex-side-chat-patch
 python3 -B codex_side_patch.py status
 ```
 
-本次已准备的严格修复副本位于 `~/Library/Application Support/CodexSideChatPatch/stages/build-25894-main-rpc-update-switch/`。用户用 ⌘Q 完全退出 CodeX 后，双击 `~/Library/Application Support/CodexSideChatPatch/安装修复并启动CodeX.command`，或执行：
+本次修复补丁已完成安装、签名及回滚包校验，安装用 stage 已清理。保留的 `~/Library/Application Support/CodexSideChatPatch/安装修复并启动CodeX.command` 可验证当前安装；直接执行会要求 CodeX 已完全退出，再验证并启动当前补丁：
 
 ```sh
 "$HOME/Library/Application Support/CodexSideChatPatch/安装修复并启动CodeX.command"
 ```
 
-该入口只使用本次已验证的 build 25894 副本。应用运行中或版本已变化时停止；安装及回滚包校验成功后清理这份 stage，再正常启动原应用路径。只点击原图标不会安装修复。入口的 `--check` 参数仅校验，不安装或启动。
+该入口固定本次已验证的 build 25894 实现、ASAR 和证书。直接执行时，应用运行中或版本已变化均停止；`--check` 仅校验，可在应用运行中使用。已安装补丁时不依赖 stage；以后回滚或更新应用后，须重新准备对应副本，才能再次安装。只点击原图标不会执行补丁安装。
 
 需要构造新副本时，源包必须是已验证的原厂应用，可先回滚当前补丁。检查 JS 语法、ASAR 摘要、Electron 完整性信息和完整包签名：
 
@@ -235,15 +235,15 @@ python3 -B tests/native_protocol_probe.py \
 node tests/native_rpc_probe.mjs --asar /Applications/ChatGPT.app/Contents/Resources/app.asar
 ```
 
-验证固定原厂 ASAR 中的实际更新 gate 和管理类，不启动应用或访问更新服务器：
+验证固定原厂 ASAR 中的实际更新 gate 和管理类，不启动应用或访问更新服务器。安装补丁后，将下例的应用路径替换为 `installation.json` 的 `backup` 字段：
 
 ```sh
-node tests/native_update_probe.mjs --asar /Applications/ChatGPT.app/Contents/Resources/app.asar
+node tests/native_update_probe.mjs --asar "<原厂应用路径>/Contents/Resources/app.asar"
 ```
 
 原生历史读取、canonical/live 合并和导航分页继续使用完整数据。展示过滤仅作用于时间线参数与导航查询投影，保留侧边轮次原始游标、偏移、未加载状态和实时覆盖；原生预览与跳转逻辑继续处理这些原始标识。自动化验证使用合成会话，不读取真实账号数据。
 
-当前已安装原厂 ASAR 为 `a77588b2dcfa9b394d722dd8c2c8b13d3a09bacd49c839cc715245742dba6048`；包含主会话修复及更新开关的副本 ASAR 为 `f8733cac67a72dca52a7df293653952d6f5dc17610bbc60f7167ccd1da59ad11`，使用固定证书 `659A2CD838DF7ADCB88F313BDE6572A223C4923C`。副本完整签名、两层 Electron 元数据及 stage 收据已验证，等待用户安装。旧补丁副本、回滚包和自动启动入口已清理，保留会话数据。用户完成安装后，以新生成的 `installation.json` 为回滚依据。
+当前已安装补丁 ASAR 为 `f8733cac67a72dca52a7df293653952d6f5dc17610bbc60f7167ccd1da59ad11`，使用固定证书 `659A2CD838DF7ADCB88F313BDE6572A223C4923C`。完整签名、两层 Electron 元数据、安装记录及原厂回滚包已验证，主进程通过正常启动检查，等待用户功能验收。安装用 stage 已清理，原厂回滚包 ASAR 为 `a77588b2dcfa9b394d722dd8c2c8b13d3a09bacd49c839cc715245742dba6048`，其路径以 `installation.json` 的 `backup` 字段为准。
 
 用户已确认原快捷键可以新建空侧边聊天，且统一时间线不显示继承的主会话历史。前台分栏、手动放大、左侧标题及恢复后的显示由用户完成界面验收。关闭后从主会话 Side chats 重开、正常退出并重启后继续追问、标签恢复及重签后的重新登录、钥匙串和实际系统权限仍需完整验收。工具、图片、附件、超长历史、压缩和生成中强制退出尚未完成桌面验证。
 
