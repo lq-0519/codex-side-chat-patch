@@ -4,14 +4,16 @@ const __sideButton = n("ygO2");
 const __sideDialog = n("JNtf");
 const __sideDialogLayout = n("mUDD");
 const __sideToasts = n("SGsN");
+const r = n("ABep"), a = n("oyxz"), l = n("Wf1j"), i = n("rmk3");
+const o = n("Ynxh"), c = n("j89V"), u = n("lBcl");
 
-/** Extend build 24614's native list only for compatibility-registry rows. */
+/** Extend build 25894's native list only for compatibility-registry rows. */
 function d(e) {
   const { sideChats, onOpen, error } = e;
   const [selected, setSelected] = __sideReact.useState(null);
-  const scope = (0, n("y5DF").gh)(n("Oj9r").GD);
+  const scope = (0, n("zTeN").gh)(n("Oj9r").GD);
   __sideReact.useEffect(
-    () => n("SYKY").codexSidePatchRegisterDeletionScope(scope),
+    () => n("V7mA").codexSidePatchRegisterDeletionScope(scope),
     [scope],
   );
   if (sideChats.length === 0 && selected == null && error == null) return null;
@@ -46,9 +48,6 @@ function m(e) {
   return r.jsx(u.x.List, {
     items: sideChats,
     getKey: h,
-    listClassName:
-      "-me-1 group-data-[summary-panel-variant=dynamic-isle]/summary-panel:" +
-      "group-data-[summary-panel-density=default]/summary-panel:me-0",
     children: (row) => {
       const button = r.jsxs(u.x.ItemButton, {
         "aria-busy": row.deletion != null || row.isResponseInProgress,
@@ -65,14 +64,16 @@ function m(e) {
         children: [
           r.jsx(u.x.ItemLeading, { children: r.jsx(o.A, {}) }),
           r.jsx(u.x.ItemLabel, {
-            className: "translate-y-px",
             children: row.deletion == null ? row.title : `${row.title} · 删除中`,
           }),
-          r.jsx(c.N, {
-            statusState: {
-              type: row.deletion != null || row.isResponseInProgress ? "loading" : "idle",
-              unread: row.hasUnreadTurn,
-            },
+          r.jsx(u.x.ItemMeta, {
+            variant: "section-status",
+            children: r.jsx(c.N, {
+              statusState: {
+                type: row.deletion != null || row.isResponseInProgress ? "loading" : "idle",
+                unread: row.hasUnreadTurn,
+              },
+            }),
           }),
         ],
       });
@@ -92,6 +93,11 @@ function m(e) {
   });
 }
 
+/** Preserve the native stable tab key for open and saved-closed rows. */
+function h(row) {
+  return row.tabId;
+}
+
 /** Use Codex's native compact dialog and destructive button for explicit confirmation. */
 function __codexSideDeleteDialog({ scope, row, onClose }) {
   const [busy, setBusy] = __sideReact.useState(false);
@@ -104,7 +110,7 @@ function __codexSideDeleteDialog({ scope, row, onClose }) {
     setBusy(true);
     setError(null);
     try {
-      await n("SYKY").codexSidePatchDelete(scope, row.durable);
+      await n("V7mA").codexSidePatchDelete(scope, row.durable);
       onClose();
       scope.get(__sideToasts.Id).info("侧边聊天已永久删除");
     } catch (caught) {

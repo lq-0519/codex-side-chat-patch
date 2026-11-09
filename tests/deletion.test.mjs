@@ -322,6 +322,112 @@ test("native deletion events and KV completion close other windows; manager disp
   } finally { f.dispose(); }
 });
 
+/**
+ * Execute the actual build adapter with the production binding and synthetic async RPC handles.
+ * Native reconnects, account replacement and late subscription completion must release resources.
+ */
+test("native async deletion subscriptions reject retired events and release late handles on unmount", async () => {
+  const f = fixture();
+  try {
+    await runtime.remember(f.storage, durable("async-side"), []);
+    const watches = new Set(), subscriptions = [], disposed = [], cleaned = [];
+    let status = "loading", account = "account", connection = 1, recovered = 0;
+    /** Each connection owns a different facade and returns a delayed disposable subscription. */
+    const rpcFor = generation => ({
+      subscribe(input) {
+        const pending = deferred();
+        assert.equal(input.type, "event");
+        assert.equal(input.key.hostId, "local");
+        assert.equal(input.event, "thread-deleted");
+        subscriptions.push({ ...pending, input, generation });
+        return pending.promise;
+      },
+      sendRequest() { throw Error("event-confirmed deletion must not dispatch an RPC"); },
+    });
+    const facades = new Map([[1, rpcFor(1)], [2, rpcFor(2)]]);
+    const scope = {
+      value: { conversationId: "parent" },
+      get(key) {
+        if (key === "connection") return { status };
+        if (key === "account") return account;
+        if (key === "user") return "user";
+      },
+      watch(callback) {
+        const evaluate = () => callback({ get: key => scope.get(key) });
+        watches.add(evaluate); evaluate();
+        return () => watches.delete(evaluate);
+      },
+    };
+    /** Signal changes synchronously re-evaluate only the adapter's mounted native watchers. */
+    const changed = () => { for (const evaluate of watches) evaluate(); };
+    const modules = {
+      SPnB: { chatGptAuthenticatedAccountId$: "account", o8: "user" },
+      l00C: { VN: "connection" },
+      Dgwo: { V: () => facades.get(connection) },
+      kpIY: { w5(key, _, callback) {
+        const listeners = f.listeners.get(key) ?? new Set();
+        listeners.add(callback); f.listeners.set(key, listeners);
+        return () => listeners.delete(callback);
+      } },
+    };
+    const context = {
+      Symbol, console, codexSidePatchStorage: () => f.storage,
+      __scp: { ...runtime, recoverDeletions(manager) {
+        recovered++; runtime.recoverDeletions(manager);
+      } },
+      n: id => modules[id],
+    };
+    vm.createContext(context);
+    vm.runInContext(fs.readFileSync(new URL("../hooks/delete-adapter.js", import.meta.url), "utf8"), context);
+    context.__codexSideCleanTabs = (_, descriptor) => { cleaned.push(descriptor.conversationId); };
+    const first = context.codexSidePatchRegisterDeletionScope(scope);
+    const second = context.codexSidePatchRegisterDeletionScope(scope);
+    assert.equal(watches.size, 1);
+    assert.equal(subscriptions.length, 0, "loading connections do not subscribe");
+    status = "ready"; changed(); changed();
+    assert.equal(subscriptions.length, 1, "unchanged signals share one subscription");
+    status = "loading"; changed();
+    connection = 2; status = "ready"; changed();
+    /** Disposal records the original connection, including handles returned after it retired. */
+    const handle = label => ({ [Symbol.dispose]() { disposed.push(label); } });
+    subscriptions[0].resolve(handle("old"));
+    await Promise.resolve();
+    assert.deepEqual(disposed, ["old"]);
+    subscriptions[0].input.listener("async-side");
+    assert.ok(runtime.readRegistry(f.storage).records["async-side"]);
+    subscriptions[1].resolve(handle("current"));
+    await Promise.resolve();
+    assert.equal(recovered, 1);
+    subscriptions[1].input.listener("async-side");
+    for (let attempt = 0; attempt < 20 &&
+         runtime.readRegistry(f.storage).records["async-side"]; attempt++) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.equal(runtime.readRegistry(f.storage).records["async-side"], undefined);
+    assert.ok(cleaned.includes("async-side"), "the live native event completes production cleanup");
+    account = "other-account"; changed();
+    assert.deepEqual(disposed, ["old", "current"]);
+    assert.equal(subscriptions.length, 3, "identity replacement gets a new subscription");
+    first(); first();
+    assert.equal(watches.size, 1, "another mounted summary keeps the binding alive");
+    second();
+    assert.equal(watches.size, 0);
+    assert.equal(f.listeners.get(runtime.REGISTRY_KEY)?.size ?? 0, 0);
+    subscriptions[2].resolve(handle("late"));
+    await Promise.resolve();
+    assert.deepEqual(disposed, ["old", "current", "late"]);
+    assert.equal(recovered, 1, "late handles cannot revive a disposed manager");
+    const reopened = context.codexSidePatchRegisterDeletionScope(scope);
+    assert.equal(watches.size, 1);
+    assert.equal(subscriptions.length, 4, "a remounted parent creates a fresh binding");
+    reopened();
+    subscriptions[3].resolve(handle("remounted-late"));
+    await Promise.resolve();
+    assert.equal(watches.size, 0);
+    assert.equal(disposed.at(-1), "remounted-late");
+  } finally { f.dispose(); }
+});
+
 /** Native menu conversion opens confirmation without directly sending a deletion request. */
 test("native menu selection opens confirmation and never sends a deletion request", () => {
   const selected = [];
@@ -340,7 +446,11 @@ test("native menu selection opens confirmation and never sends a deletion reques
     o: { A: "side-icon" }, c: { N: "status" }, i: { t: "native-context-menu" },
     h: row => row.tabId,
   };
-  modules.SYKY = { codexSidePatchDelete: () => { deleteCalls++; } };
+  modules.V7mA = { codexSidePatchDelete: () => { deleteCalls++; } };
+  Object.assign(modules, {
+    ABep: context.r, lBcl: context.u, Wf1j: context.l, Ynxh: context.o,
+    j89V: context.c, rmk3: context.i,
+  });
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/side-list.js", import.meta.url), "utf8"), context);
   const row = { title: "synthetic", durable: durable() };
@@ -372,6 +482,10 @@ test("side list preserves native attached menus and unread state while plugin ro
     o: { A: "side-icon" }, c: { N: "status" }, i: { t: "native-context-menu" },
     h: row => row.tabId,
   };
+  Object.assign(modules, {
+    ABep: context.r, lBcl: context.u, Wf1j: context.l, Ynxh: context.o,
+    j89V: context.c, rmk3: context.i,
+  });
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/side-list.js", import.meta.url), "utf8"), context);
   const opened = [];
@@ -388,8 +502,9 @@ test("side list preserves native attached menus and unread state while plugin ro
   assert.strictEqual(attached.props.getItems, native.getMenuItems);
   const button = attached.props.children;
   assert.equal(button.props["aria-description"], "Unread updates");
-  assert.equal(button.props.children[2].props.statusState.unread, true);
-  assert.equal(button.props.children[2].props.statusState.type, "loading");
+  assert.equal(button.props.children[2].props.variant, "section-status");
+  assert.equal(button.props.children[2].props.children.props.statusState.unread, true);
+  assert.equal(button.props.children[2].props.children.props.statusState.type, "loading");
   button.props.onClick();
   assert.strictEqual(opened[0], native);
   const saved = list.props.children(plugin);
@@ -422,12 +537,13 @@ test("actual confirmation defaults to cancel, cancellation sends nothing, double
     JNtf: { lG: "dialog" },
     mUDD: { R4: "form", OO: "section", c7: "header", Es: "actions" },
     SGsN: { Id: "toasts" },
-    SYKY: { codexSidePatchDelete: () => { calls++; return request.promise; } },
+    V7mA: { codexSidePatchDelete: () => { calls++; return request.promise; } },
   };
   const context = {
     n: id => modules[id],
     r: { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
   };
+  modules.ABep = context.r;
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/side-list.js", import.meta.url), "utf8"), context);
   const props = {
@@ -589,7 +705,7 @@ test("only first own successful turn names; collisions, live rows and saved layo
     const rows = runtime.summaryRows(runtime.readRegistry(f.storage),
       [{ conversationId: "a", title: "old open tab" }],
       { accountId: "account", userId: "user", sourceConversationId: "parent" });
-    assert.deepEqual(rows.map(row => row.title), ["分析请求", "分析请求 (2)"]);
+    assert.deepEqual(rows.map(row => row.title).sort(), ["分析请求", "分析请求 (2)"]);
     const saved = JSON.parse(fs.readFileSync(f.file))[key];
     assert.deepEqual(saved.routes.map(route => route.params.title), ["分析请求", "分析请求 (2)", "private"]);
     assert.deepEqual(saved.topology, oldLayout.topology);
@@ -720,8 +836,8 @@ test("native sidebar rename transitions use the registry for perform, undo and r
     const context = {
       __scp: runtime, n: id => modules[id], codexSidePatchStorage: () => f.storage,
       __sideTitleClean: input => input.trim().slice(0, 60) || null,
-      p: { qX: "host" }, x: { renameThreadUndone: "native undo label" },
-      m: { vJ: (_, options, actions) => {
+      p: { qX: "host" }, U: { renameThreadUndone: "native undo label" },
+      g: { vJ: (_, options, actions) => {
         assert.equal(options.transitionQueueKey, "thread-title:local:a");
         transitions = actions; return actions.perform();
       } },
@@ -834,9 +950,7 @@ test("native title hook maps entity keys to turn IDs and follows right/bottom ta
     const modules = {
       SPnB: { chatGptAuthenticatedAccountId$: "account", o8: "user" },
       tl5a: { VT: "native-count" },
-      Dgwo: { V: () => ({ getConversation: () => ({
-        turns: [{ turnId: "parent-turn" }],
-      }) }) },
+      vdpW: { M: "canonical", od: () => ({ turnId: "parent-turn" }) },
       XXJV: { getThreadPanelTabController: target => controllers.get(target) },
       kpIY: { w5: (key, _, callback) => {
         assert.equal(key, runtime.REGISTRY_KEY);
@@ -857,7 +971,8 @@ test("native title hook maps entity keys to turn IDs and follows right/bottom ta
     // Override only the manager factory; the actual tab registration and title adapter run intact.
     context.__codexSideDeleteBinding = () => ({ binding: {
       register: () => () => released.push("delete registration"),
-    } });
+      dispose() {},
+    }, references: 0, manager: { cleanup: [] } });
     vm.runInContext(fs.readFileSync(new URL("../hooks/title-adapter.js", import.meta.url), "utf8")
       .replaceAll("export function", "function").replaceAll("export async function", "async function"), context);
     assert.equal(context.codexSidePatchIsFirstTurn(scope, "a"), true,

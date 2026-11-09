@@ -1,13 +1,19 @@
 /**
- * Replace build 24614's AqOV.v. Local forks follow the new native persistent descriptor shape
+ * Replace build 25894's AqOV.O. Local forks follow the native persistent descriptor shape
  * while retaining the compatibility registry required for historical discovery and deletion.
  * Other hosts keep the native attached-or-temporary behavior unchanged.
  */
-async function v({
+async function codexSideCreate({
   scope: e, sourceConversationId: t, threadSource: n, cwd: g, hostId: w,
   collaborationMode: y, instructionOverrides: I, parentNavigationPath: C,
   assertRequestCurrent: A, naming: R,
 }) {
+  const r = __require("DBCl"), h = __require("gjB6"), d = __require("lqHG");
+  const c = __require("MLeN"), l = __require("v3eX"), u = __require("KJlv");
+  const p = __require("qixt"), a = __require("Ehlj"), i = __require("tl5a");
+  const s = __require("CfsC"), m = __require("OMIV"), o = __require("IhcX");
+  const f = __require("TJeR"), __sideIdentity = __require("SPnB");
+  const __sideManager = __require("Dgwo"), __side = __require("V7mA");
   if ((0, r.ZJQ)(w)) {
     const result = await (0, h.z)({
       scope: e, sourceConversationId: t, threadSource: n, collaborationMode: y,
@@ -55,6 +61,10 @@ async function v({
     cwd: g,
     workspaceRoots,
     collaborationMode: y,
+    // Match the native fork's model override; an empty model keeps the server's selection.
+    model: y?.settings.model || void 0,
+    // Preserve the collaboration mode's effort exactly, including an explicit null value.
+    reasoningEffort: y?.settings.reasoning_effort,
     ...(attached ? { attachToSource: true } : { ephemeral: !persistent }),
     addForkedSyntheticItem: false,
     developerInstructions: persistent

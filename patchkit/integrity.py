@@ -1,4 +1,4 @@
-"""Synchronize Electron 42's protected ASAR metadata digest without disabling integrity checks."""
+"""Synchronize the supported Electron ASAR metadata digest without disabling integrity checks."""
 
 import hashlib
 import mmap
@@ -9,7 +9,7 @@ import struct
 
 # FRAMEWORK is the single thin ARM64 framework packaged by the supported desktop build.
 FRAMEWORK = Path(
-    "Contents/Frameworks/Codex Framework.framework/Versions/156.0.8078.79/Codex Framework"
+    "Contents/Frameworks/Codex Framework.framework/Versions/157.0.8103.39/Codex Framework"
 )
 # SENTINEL identifies Electron's reserved slot; used/version stay enabled at their original values.
 SENTINEL = b"AGbevlPCksUGKNL8TSn7wGmJEuJsXb2A"

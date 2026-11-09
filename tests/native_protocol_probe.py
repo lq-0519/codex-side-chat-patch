@@ -285,6 +285,17 @@ def probe(codex, root, endpoint):
         require("LATER_PARENT_TURN_MUST_STAY_OUT" not in continuation and
                 "OLD_EPHEMERAL_SIDE_TURN" not in continuation,
                 "Continued generation imported another thread's later turns")
+        # Exercise the same destructive native method used after a durable deletion claim.
+        server.result("thread/delete", {"threadId": side["id"]})
+        deleted = server.request("thread/read", {"threadId": side["id"], "includeTurns": False})
+        require("error" in deleted, "Native deletion left a readable side rollout")
+        parent_after_delete = server.result("thread/read", {
+            "threadId": parent["id"], "includeTurns": False,
+        })["thread"]
+        require(parent_after_delete["id"] == parent["id"], "Side deletion affected the parent")
+    with ProbeServer(codex, root, "deleted-restarted") as server:
+        deleted = server.request("thread/resume", {"threadId": side["id"], "excludeTurns": True})
+        require("error" in deleted, "A deleted side rollout survived engine restart")
     return {
         "state": "passed", "profile": PROFILE["id"], "parent_id": parent["id"],
         "side_id": side["id"], "inherited_turn_ids": inherited_ids,
@@ -293,6 +304,7 @@ def probe(codex, root, endpoint):
             "original_identity_after_restart": True, "parent_and_side_turns_preserved": True,
             "continuation_context_preserved": True, "later_parent_turns_excluded": True,
             "ephemeral_missing_after_restart": True, "old_ephemeral_migration_rejected": True,
+            "native_side_delete_preserves_parent": True, "deleted_side_missing_after_restart": True,
         },
         "desktop_acceptance": "pending",
     }

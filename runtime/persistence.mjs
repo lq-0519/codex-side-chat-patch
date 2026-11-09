@@ -39,6 +39,57 @@ const parentGroups = new WeakMap();
  * unchanged titles reuse the same task reference so native list equality avoids needless renders.
  */
 const sidebarTitles = new WeakMap();
+/**
+ * Reuse one renderer guard per native local RPC facade. Weak keys release retired connections;
+ * the proxy retains native subscription/thenable handles and does not copy conversation state.
+ */
+const guardedRpcs = new WeakMap();
+
+/**
+ * Enforce pending deletion before the renderer dispatches a native RPC to the new worker.
+ * Workers have no renderer KV snapshot, so the guard belongs to this boundary. Every callable
+ * retains the native receiver, including private-field methods and Symbol.dispose. Return
+ * values and asynchronous cancellation handles pass through without another promise layer.
+ */
+export function guardedSideRpc(storage, hostId, rpc) {
+  if (hostId !== "local") return rpc;
+  let guarded = guardedRpcs.get(rpc);
+  if (guarded != null) return guarded;
+  /** Memoize bound methods so repeated native selectors keep stable function identities. */
+  const methods = new Map();
+  /** Higher-level native operations may dispatch a turn/resume without calling facade.sendRequest. */
+  const dispatch = new Set([
+    "resumeConversation", "resumeThread", "startTurn", "startEmptyTurn",
+    "sendFollowUpMessage", "steerTurn", "editLastUserTurn",
+  ]);
+  guarded = new Proxy(rpc, {
+    get(target, property) {
+      const native = Reflect.get(target, property, target);
+      if (typeof native !== "function") return native;
+      if (methods.has(property)) return methods.get(property);
+      if (property !== "sendRequest" && !dispatch.has(property) && property !== "dup") {
+        const bound = native.bind(target);
+        methods.set(property, bound);
+        return bound;
+      }
+      const wrapped = (...args) => {
+        if (property === "dup") return guardedSideRpc(storage, hostId, native.apply(target, args));
+        if (property === "sendRequest") guardSideRequest(storage, hostId, args[0], args[1]);
+        else {
+          const input = args[0];
+          const threadId = typeof input === "string" ? input : input?.conversationId ?? input?.threadId;
+          guardSideRequest(storage, hostId,
+            property.startsWith("resume") ? "thread/resume" : "turn/start", { threadId });
+        }
+        return native.apply(target, args);
+      };
+      methods.set(property, wrapped);
+      return wrapped;
+    },
+  });
+  guardedRpcs.set(rpc, guarded);
+  return guarded;
+}
 
 /**
  * Read the relation index without overwriting an unknown schema or damaged value.
@@ -721,7 +772,8 @@ export function recoverDeletions(manager) {
 export function guardSideRequest(storage, hostId, method, params) {
   if (hostId !== "local" ||
       !["turn/start", "turn/steer", "thread/resume", "thread/inject_items",
-        "thread/queuedMessages/add", "thread-follower-start-turn",
+        "thread/queuedMessages/add", "thread/queue/add", "thread/queue/start",
+        "thread-follower-start-turn",
         "thread-follower-steer-turn"].includes(method)) return;
   const id = params?.threadId ?? params?.conversationId;
   if (readRegistry(storage).records[id]?.deletion ||

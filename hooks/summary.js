@@ -1,9 +1,9 @@
 /**
- * Merge compatibility-registry rows with build 24614's native attached-thread discovery.
+ * Merge compatibility-registry rows with build 25241's native attached-thread discovery.
  * Native open rows retain unread state and menu metadata; only closed historical rows are added.
  */
 ({ get, scope }, nativeRows) => __scp.summaryRows(
-  get(n("SYKY").codexSidePatchRegistryAtom(), void 0),
+  get(n("V7mA").codexSidePatchRegistryAtom(), void 0),
   nativeRows,
   {
     accountId: get(n("SPnB").chatGptAuthenticatedAccountId$),

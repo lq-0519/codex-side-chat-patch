@@ -1,12 +1,22 @@
 /**
- * Replace build 24614's vBFC.v. Native resume owns workspace and server configuration; the
+ * Replace build 25894's vBFC.q. Native resume owns workspace and server configuration; the
  * compatibility guard prevents deleted historical descriptors from reopening from stale layouts.
  */
-async function v(e, t, n, r) {
+async function codexSideRestore(e, t, sourceConversationId, r) {
+  const a = __require("DBCl"), d = __require("SPnB"), l = __require("MLeN");
+  const s = __require("Dgwo"), i = __require("shRG"), o = __require("vpsD");
+  const __side = __require("V7mA");
   const hostId = t.hostId ?? a.iwv;
   /** Validate ownership and deletion state around every asynchronous native boundary. */
   const current = () => {
-    g(e, t);
+    if (t.accountId !== e.get(d.chatGptAuthenticatedAccountId$) ||
+        t.userId !== e.get(d.o8)) {
+      throw Error(e.get(__require("svjy").g).formatMessage({
+        id: "localConversation.sideChat.workspaceChanged",
+        defaultMessage: "The workspace changed before the side chat could open",
+        description: "Error when the signed-in user or workspace changes while opening a saved Team side chat",
+      }));
+    }
     if (__scp.isManagedSide(__side.codexSidePatchStorage(), t)) {
       __scp.assertUsable(
         __side.codexSidePatchStorage(),
@@ -25,7 +35,7 @@ async function v(e, t, n, r) {
       reasoningEffort: null,
       workspaceRoots: (0, a.ZJQ)(hostId)
         ? []
-        : await (0, l.A)(e, n, { allowProjectSourceRoots: true }),
+        : await (0, l.A)(e, sourceConversationId, { allowProjectSourceRoots: true }),
       preserveServerConfiguration: true,
       sideConversation: { parentNavigationPath: r },
     };

@@ -1,4 +1,4 @@
-/** Native manager and panel symbols below belong to the hash-pinned build 24614 module graph. */
+/** Native manager and panel symbols below belong to the hash-pinned build 25894 module graph. */
 
 /**
  * Subscribe hydrated and final sidebar title families to owned registry/account/user snapshots.
@@ -45,11 +45,15 @@ function codexSidePatchIsFirstTurn(scope, conversationId) {
     scope.get(identity.o8),
   );
   if (record.naming?.phase === "content") return false;
-  const conversation = (0, n("Dgwo").V)(scope, "local").getConversation(conversationId);
+  // RPC getConversation is asynchronous in this build. Read the existing reactive canonical
+  // turn entities instead: a missing entity cannot prove an empty first-turn boundary.
+  const history = n("vdpW");
+  const keys = scope.get(history.M, { hostId: "local", threadId: conversationId });
+  const turns = keys?.map(key => history.od(scope, key));
   return __scp.shouldNameFirstTurn(
     storage,
     conversationId,
-    conversation == null ? null : P(conversation),
+    turns == null || turns.some(turn => turn == null) ? null : turns,
   );
 }
 

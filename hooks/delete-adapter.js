@@ -1,4 +1,4 @@
-/** Native module IDs below are valid only in the hash-pinned build 24614 Rspack graph. */
+/** Native module IDs below are valid only in the hash-pinned build 25894 Rspack graph. */
 var __codexSideDeleteBindings = new WeakMap();
 /** Open tabs retain cleanup registration while their parent summary is collapsed. */
 var __codexSideDeleteTabScopes = new WeakMap();
@@ -29,13 +29,55 @@ function __codexSideCleanTabs(scope, durable) {
   n("Ioto").ux(scope, durable.sourceConversationId, durable.conversationId);
 }
 
-/** Bind deletion recovery once to the native local manager and current identity signals. */
+/**
+ * Bind deletion recovery to the native asynchronous RPC facade for a mounted parent scope.
+ * Connection/identity signals reattach the native thread-deleted event after a host reconnect.
+ * The last mounted summary/tab releases both native handles and the registry subscription.
+ */
 function __codexSideDeleteBinding(scope) {
-  const manager = (0, n("Dgwo").V)(scope, "local");
-  let binding = __codexSideDeleteBindings.get(manager);
-  if (binding == null) {
-    const identity = n("SPnB");
-    binding = __scp.bindDeletionManager(manager, {
+  let entry = __codexSideDeleteBindings.get(scope);
+  if (entry == null) {
+    const identity = n("SPnB"), connection = n("l00C");
+    /** Adapt only the deletion operations; no conversation cache or transcript is copied. */
+    const manager = {
+      disposed: false,
+      cleanup: [],
+      sendRequest: (method, params) => (0, n("Dgwo").V)(scope, "local")
+        .sendRequest(method, params),
+      /** Subscribe through native RPC and release handles even if setup finishes after unmount. */
+      addThreadDeletedListener(callback) {
+        let active = true, generation = 0, handle, lastRpc, lastAccount, lastUser;
+        /** Native RPC handles implement Symbol.dispose; disposal also cancels their callbacks. */
+        const release = value => value?.[Symbol.dispose]();
+        const stop = scope.watch(({ get }) => {
+          const state = get(connection.VN, "local");
+          const accountId = get(identity.chatGptAuthenticatedAccountId$);
+          const userId = get(identity.o8);
+          if (state.status !== "ready") {
+            generation++; release(handle); handle = lastRpc = void 0;
+            return;
+          }
+          const rpc = (0, n("Dgwo").V)(scope, "local");
+          if (rpc === lastRpc && accountId === lastAccount && userId === lastUser) return;
+          const ticket = ++generation;
+          release(handle); handle = void 0;
+          lastRpc = rpc; lastAccount = accountId; lastUser = userId;
+          const pending = rpc.subscribe({
+            type: "event", key: { hostId: "local" }, event: "thread-deleted",
+            listener: id => { if (active && ticket === generation) callback(id); },
+          });
+          pending.then(value => {
+            if (!active || ticket !== generation) return release(value);
+            handle = value;
+            __scp.recoverDeletions(manager);
+          }, error => {
+            if (active && ticket === generation) console.error(__scp.errorJSON(error));
+          });
+        });
+        return () => { active = false; generation++; stop(); release(handle); };
+      },
+    };
+    const binding = __scp.bindDeletionManager(manager, {
       storage: codexSidePatchStorage(),
       readIdentity: () => ({
         accountId: scope.get(identity.chatGptAuthenticatedAccountId$),
@@ -43,15 +85,27 @@ function __codexSideDeleteBinding(scope) {
       }),
       subscribe: (callback) => n("kpIY").w5(__scp.REGISTRY_KEY, void 0, callback),
     });
-    __codexSideDeleteBindings.set(manager, binding);
+    entry = { manager, binding, references: 0 };
+    __codexSideDeleteBindings.set(scope, entry);
   }
-  return { manager, binding };
+  return entry;
 }
 
 /** Register one mounted parent so persisted deletion notifications repair its panel layout. */
 function codexSidePatchRegisterDeletionScope(scope) {
-  const { binding } = __codexSideDeleteBinding(scope);
-  return binding.register((durable) => __codexSideCleanTabs(scope, durable));
+  const entry = __codexSideDeleteBinding(scope);
+  entry.references++;
+  const stop = entry.binding.register((durable) => __codexSideCleanTabs(scope, durable));
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false; stop();
+    if (--entry.references !== 0) return;
+    entry.manager.disposed = true;
+    entry.binding.dispose();
+    entry.manager.cleanup.length = 0;
+    __codexSideDeleteBindings.delete(scope);
+  };
 }
 
 /** Register one open tab for deletion cleanup and cross-window title synchronization. */

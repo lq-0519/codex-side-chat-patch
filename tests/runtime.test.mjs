@@ -476,7 +476,7 @@ test("actual summary hook reads the native KV family with a key and preserves re
   const context = {
     __scp: persistence,
     n: (id) => ({
-      SYKY: { codexSidePatchRegistryAtom: () => registryFamily },
+      V7mA: { codexSidePatchRegistryAtom: () => registryFamily },
       SPnB: { chatGptAuthenticatedAccountId$: accountSignal, o8: userSignal },
     })[id],
   };
@@ -743,6 +743,57 @@ test("RPC finally records full request, response and non-enumerable error fields
   assert.ok(failure.error.stack.includes("native failure"));
 });
 
+/** A native facade can own private fields and asynchronous handles across renderer guards. */
+test("renderer RPC guard blocks pending and completed deletions while preserving native receivers", async () => {
+  const storage = storageFixture();
+  const descriptor = durable();
+  persistence.remember(storage, descriptor, []);
+  const calls = [];
+  const result = Promise.resolve({ native: "unchanged" });
+  class NativeRpc {
+    /** Private state catches any accidental invocation with the proxy as the native receiver. */
+    #active = true;
+    sendRequest(...args) { calls.push([this.#active, "sendRequest", ...args]); return result; }
+    resumeConversation(...args) { calls.push([this.#active, "resumeConversation", ...args]); return result; }
+    startTurn(...args) { calls.push([this.#active, "startTurn", ...args]); return result; }
+    subscribe(...args) { calls.push([this.#active, "subscribe", ...args]); return result; }
+    dup() { calls.push([this.#active, "dup"]); return new NativeRpc(); }
+    [Symbol.dispose]() { calls.push([this.#active, "dispose"]); this.#active = false; }
+  }
+  const native = new NativeRpc();
+  const rpc = persistence.guardedSideRpc(storage, "local", native);
+  assert.strictEqual(persistence.guardedSideRpc(storage, "local", native), rpc);
+  assert.strictEqual(persistence.guardedSideRpc(storage, "remote-host", native), native);
+  assert.strictEqual(rpc.sendRequest, rpc.sendRequest);
+  assert.strictEqual(rpc.subscribe, rpc.subscribe);
+  assert.strictEqual(rpc.sendRequest("turn/start", { threadId: descriptor.conversationId }), result);
+  assert.strictEqual(rpc.resumeConversation({ conversationId: descriptor.conversationId }), result);
+  assert.strictEqual(rpc.subscribe({ type: "event" }), result);
+  const duplicate = rpc.dup();
+  const index = persistence.readRegistry(storage);
+  storage.writeValue(persistence.REGISTRY_KEY, {
+    ...index, records: { ...index.records, [descriptor.conversationId]: {
+      ...index.records[descriptor.conversationId],
+      deletion: { operationId: "pending-operation", phase: "requested" },
+    } },
+  });
+  const count = calls.length;
+  assert.throws(() => rpc.sendRequest("turn/steer", { threadId: descriptor.conversationId }), /deleted/);
+  assert.throws(() => rpc.resumeConversation({ conversationId: descriptor.conversationId }), /deleted/);
+  assert.throws(() => rpc.startTurn(descriptor.conversationId, { input: [] }), /deleted/);
+  assert.throws(() => duplicate.startTurn({ threadId: descriptor.conversationId }), /deleted/);
+  assert.equal(calls.length, count, "blocked operations never reach the native worker");
+  assert.strictEqual(rpc.sendRequest("thread/delete", { threadId: descriptor.conversationId }), result);
+  assert.strictEqual(rpc.startTurn({ conversationId: "ordinary-thread" }), result);
+  storage.writeValue(persistence.REGISTRY_KEY, { version: 1, records: {} });
+  storage.writeValue(persistence.DELETED_KEY, { [descriptor.conversationId]: true });
+  assert.throws(() => rpc.sendRequest("thread/resume", { threadId: descriptor.conversationId }), /deleted/);
+  duplicate[Symbol.dispose]();
+  rpc[Symbol.dispose]();
+  assert.equal(calls.at(-1)[1], "dispose");
+  assert.ok(calls.every(call => call[0] === true), "native private receivers survive every wrapper");
+});
+
 /**
  * Evaluate the actual version adapter's creation function with native API-shaped services.
  * The fixture records side-boundary policy, persistent fork flags and cancelled-thread cleanup.
@@ -788,10 +839,17 @@ function creationFixture(hostId = "local", attached = false) {
     Error, Promise,
   };
   context.o = { y: (...args) => context.Ce(...args) };
+  context.__require = id => ({
+    DBCl: context.r, gjB6: context.h, lqHG: context.d, MLeN: context.c,
+    v3eX: context.l, KJlv: context.u, qixt: context.p, Ehlj: context.a,
+    tl5a: context.i, CfsC: context.s, OMIV: context.m, IhcX: context.o,
+    TJeR: context.f, SPnB: context.__sideIdentity, Dgwo: context.__sideManager,
+    V7mA: context.__side,
+  })[id];
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/local-create.js", import.meta.url), "utf8"), context);
   return {
-    invoke: () => context.v({
+    invoke: () => context.codexSideCreate({
       scope: { get: (atom) => atom === "account" ? account : atom === "user" ? "user-one" :
         atom === "history" ? "paginated" : atom === "gate" ? attached : false },
       threadSource: "user",
@@ -816,6 +874,25 @@ test("actual native creation hook creates a durable local fork with inherited-ID
   assert.match(fixture.requests[0].params.developerInstructions, /reference only/);
   assert.deepEqual(persistence.readRegistry(fixture.storage).records["side-one"].inheritedTurnIds,
     ["parent-turn"]);
+});
+
+/** Model and effort must follow the updated native fork contract for both local and remote hosts. */
+test("creation forwards native collaboration model and effort without replacing the mode", async () => {
+  for (const host of ["local", "remote-host"]) {
+    for (const effort of ["high", null]) {
+      const fixture = creationFixture(host);
+      const mode = { settings: { model: "native-model", reasoning_effort: effort } };
+      await fixture.context.codexSideCreate({
+        scope: { get: atom => atom === "account" ? "account-one" :
+          atom === "user" ? "user-one" : false },
+        sourceConversationId: "parent-one", threadSource: "user", hostId: host,
+        cwd: "/empty-workspace", collaborationMode: mode,
+      });
+      assert.strictEqual(fixture.requests[0].params.collaborationMode, mode);
+      assert.equal(fixture.requests[0].params.model, "native-model");
+      assert.equal(fixture.requests[0].params.reasoningEffort, effort);
+    }
+  }
 });
 
 test("cancelled and identity-retired native creations are archived without recoverable orphan rows", async () => {
@@ -893,11 +970,16 @@ function restorationFixture(changeAt) {
     o: { uZ: Error },
     Error,
   };
+  context.__require = id => ({
+    DBCl: context.a, SPnB: context.d, MLeN: context.l, Dgwo: context.s,
+    shRG: context.i, vpsD: context.o, V7mA: context.__side, svjy: { g: "intl" },
+  })[id];
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(new URL("../hooks/restore.js", import.meta.url), "utf8"), context);
   return {
-    invoke: () => context.v({
-      get: (key) => key === "account" ? account : "user-one",
+    invoke: () => context.codexSideRestore({
+      get: (key) => key === "account" ? account : key === "intl"
+        ? { formatMessage: () => "The signed-in identity changed" } : "user-one",
     }, descriptor, "parent-one", "/thread/parent-one"),
     requests, storage,
   };
